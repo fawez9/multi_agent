@@ -1,21 +1,11 @@
-import os
+from needs import llm
 from typing import Annotated
-from dotenv import load_dotenv
-import google.generativeai as genai
 from candidate import candidate_info
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
-from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Load environment variables
-load_dotenv()
 
-# Configure Google GenAI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-
-# Initialize LLM
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
 
 # State definition
 class State(TypedDict):
@@ -58,44 +48,53 @@ def generate_interview_plan(state: State):
     skills = state.get('technical_skills', state['technical_skills'])
     
     try:
-        prompt = f"Generate 2 technical interview questions for {role} focusing on {', '.join(skills)}. Format each question as a numbered item:"
+        prompt = f"Generate 3 technical interview questions for {role} focusing on {', '.join(skills)} also dont give long codes to implement. Format each question as a numbered item:"
         response = llm.invoke(prompt)
         # Extract only the actual questions, filtering out any explanatory text
         questions = []
         for line in response.content.split('\n'):
-            if line.strip() and (line.startswith('1.') or line.startswith('2.') or line.startswith('3.')):
+            line = line.strip()
+            if line and any(line.startswith(f"{i}.") for i in range(1, 4)): # Check if line starts with a number
                 questions.append(line.strip())
     except Exception as e:
         print(f"API Error: {str(e)}")
-        questions = ['API Error: Failed to generate questions']
+        # questions = ['API Error: Failed to generate questions']
+        return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
     
     return {'plan': questions, 'status': 'Plan Incomplete'}
 
 def check_interview_plan(state: State):
     """Checks the status of the interview plan."""
-    return {'status': 'Plan Complete' if not state['plan'] else 'Plan Incomplete'}
+    is_complete = not state['plan'] or len(state['plan']) == 0
+    return {'status': 'Plan Complete' if is_complete else 'Plan Incomplete'}
 
 def present_question(state: State):
     """Presents the next question in the interview plan."""
-    if state['plan']:
-        return {'current_question': state['plan'][0]}
-    return {'current_question': '', 'status': 'Plan Complete'}
+    if not state['plan']:
+        return {'current_question': '', 'status': 'Plan Complete'}
+    
+    current_question = state['plan'][0]
+    remaining_plan = state['plan'][1:]  # Remove the current question from the plan
+    
+    return {
+        'current_question': current_question,
+        'plan': remaining_plan  # Update the plan to remove the current question
+    }
 
 def collect_response(state: State):
     """Collects the candidate's response to the current question."""
-    print(f"\nQ: {state['current_question']}")
-    response = input("Your answer: ").strip()
-    # Remove the question from the plan after collecting response
-    updated_plan = state['plan'][1:] if state['plan'] else []
-    return {
-        'response': response,
-        'plan': updated_plan
-    }
+    if state['current_question']:
+        print(f"\nQ: {state['current_question']}")
+        response = input("Your answer: ").strip()
+        return {
+            'response': response,
+        }
+    return {'response': ''}
 
 def evaluate_technical_response(state: State):
     """Evaluates the candidate's response to the current question."""
     try:
-        prompt = f"Evaluate this technical response. Question: {state['current_question']}\nResponse: {state['response']}\nProvide a score out of 100 and detailed feedback:"
+        prompt = f"Evaluate this technical response. Question: {state['current_question']}\nResponse: {state['response']}\nProvide a score out of 100 and detailed feedback dont hesitate to be critical."
         evaluation = llm.invoke(prompt)
         return {'technical_score': evaluation.content}
     except Exception as e:
@@ -114,18 +113,19 @@ def generate_report(state: State):
     """Generates the final interview report."""
     report = [
         f"""
------------------------------------
-Interview Report for {state['name']}
+-----------------Interview Report for {state['name']}------------------
 Position: {state['applied_role']}
 Skills: {', '.join(state['technical_skills'])}\n
------------------------------------
+-----------------Technical Interview Scores----------------------------
 """
     ]
-    
-    for i, score in enumerate(state['scores'], 1):
-        report.append(f"{i}. Question: {score['question']}")
-        report.append(f"   Answer: {score['response']}")
-        report.append(f"   Evaluation: {score['evaluation']}\n")
+    if state['plan'] == ['API Error: Failed to generate questions']:
+        report.append("Technical interview questions could not be generated due to an API error.\n")
+    else:
+        for i, score in enumerate(state['scores'], 1):
+            report.append(f"{i}. Question: {score['question']}")
+            report.append(f"   Answer: {score['response']}")
+            report.append(f"   Evaluation: {score['evaluation']}\n")
     
     return {'report': '\n'.join(report)}
 
@@ -133,7 +133,6 @@ def end_interview(state: State):
     """Ends the interview and displays the final report."""
     print("\n" + state['report'])
     print("\nInterview completed. Thank you!")
-    return {'status': 'Complete'}
 
 # Create and configure workflow
 workflow = StateGraph(State)
@@ -180,6 +179,7 @@ interview_flow = workflow.compile()
 if __name__ == "__main__":
     print("Starting interview workflow...\n")
     try:
-        interview_flow.invoke({ "messages": [] })
+        # Increase recursion limit to handle more questions
+        interview_flow.invoke({ "messages": [] }, config={"recursion_limit": 100})
     except KeyboardInterrupt:
         print("\nInterview interrupted by user")

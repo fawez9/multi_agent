@@ -2,3 +2,6 @@
 .env
 __pycache__
 test.py
+knowledge_base
+new_docs
+vectorstores
