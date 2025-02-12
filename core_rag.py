@@ -108,7 +108,7 @@ class BaseRAG:
         docs = self.similarity_search(query, k=k)
         return "\n\n".join([doc.page_content for doc in docs])
 
-    def generate_response(self, query: str, k: int = 3) -> str:
+    def generate_response(self, query: str, k: int = 2) -> str:
         """
         Generate a response using the RAG workflow
         
@@ -122,7 +122,7 @@ class BaseRAG:
         # Retrieve relevant context
         context = self.get_relevant_context(query, k=k)
         
-        # Generate response using a generative model (e.g., Gemini)
+        # Generate response using LLM
         prompt = f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
         response = llm.invoke(prompt)
         
@@ -167,10 +167,10 @@ class BaseRAG:
         else:
             print("No new documents were added.")
 
-# Example usage
+rag = BaseRAG(docs_path="./knowledge_base", collection_name="my_index")
+""" # Example usage
 if __name__ == "__main__":
     # Initialize the RAG system
-    rag = BaseRAG(docs_path="./knowledge_base", collection_name="my_index")
     
     # Query the system
     query = "Where is the Eiffel Tower located?"
@@ -183,4 +183,4 @@ if __name__ == "__main__":
     # Query again with the updated knowledge base
     query = "What is the highest peak in the world?"
     response = rag.generate_response(query)
-    print("Updated Response:", response)
+    print("Updated Response:", response) """

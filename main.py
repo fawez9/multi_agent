@@ -1,6 +1,6 @@
-from needs import llm
+from core_rag import rag
 from typing import Annotated
-from candidate import candidate_info
+import candidate
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
@@ -34,12 +34,13 @@ def start_interview(state: State):
         'status': 'Plan Incomplete'
     }
 
+#TODO: candidate infos should be implemented from the rag knowledge base or db  <----------------------
 def initialize_candidate_info(state: State):
     """Initialize candidate information."""
     return {
-        'applied_role': candidate_info['applied_role'],
-        'technical_skills': candidate_info['technical_skills'],
-        'name': candidate_info['name'],
+        'applied_role': candidate.applied_role,
+        'technical_skills': candidate.technical_skills,
+        'name': candidate.name,
     }
 
 def generate_interview_plan(state: State):
@@ -48,17 +49,21 @@ def generate_interview_plan(state: State):
     skills = state.get('technical_skills', state['technical_skills'])
     
     try:
-        prompt = f"Generate 3 technical interview questions for {role} focusing on {', '.join(skills)} also dont give long codes to implement. Format each question as a numbered item:"
-        response = llm.invoke(prompt)
+        # Generate questions using the RAG system
+        prompt = f"""
+        Based on the job offer and candidate profile, generate 3 technical interview questions for the role of {role}.
+        Focus on the following skills: {', '.join(skills)}.
+        Format each question as a numbered item:
+        """
+        response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
         # Extract only the actual questions, filtering out any explanatory text
         questions = []
-        for line in response.content.split('\n'):
+        for line in response.split('\n'):
             line = line.strip()
-            if line and any(line.startswith(f"{i}.") for i in range(1, 4)): # Check if line starts with a number
+            if line and any(line.startswith(f"{i}.") for i in range(1, 4)):  # Check if line starts with a number
                 questions.append(line.strip())
     except Exception as e:
         print(f"API Error: {str(e)}")
-        # questions = ['API Error: Failed to generate questions']
         return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
     
     return {'plan': questions, 'status': 'Plan Incomplete'}
@@ -94,9 +99,14 @@ def collect_response(state: State):
 def evaluate_technical_response(state: State):
     """Evaluates the candidate's response to the current question."""
     try:
-        prompt = f"Evaluate this technical response. Question: {state['current_question']}\nResponse: {state['response']}\nProvide a score out of 100 and detailed feedback dont hesitate to be critical."
-        evaluation = llm.invoke(prompt)
-        return {'technical_score': evaluation.content}
+        prompt = f"""
+        Evaluate this technical response based on the job offer and candidate profile.
+        Question: {state['current_question']}
+        Response: {state['response']}
+        Provide a score out of 100 and detailed feedback. Be critical if necessary.
+        """
+        evaluation = rag.generate_response(query=prompt)  # Use the RAG system to evaluate the response
+        return {'technical_score': evaluation}
     except Exception as e:
         return {'technical_score': f"Evaluation failed: {str(e)}"}
 
