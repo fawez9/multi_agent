@@ -46,9 +46,9 @@ def create_interview_agent(llm):
         3. check_plan - Check if there are more questions
 
         Rules:
-         -Ask only one question at a time
+        -Ask only one question at a time
         -If there's a user response collect it using the collect_response tool
-        -Check the Interview Plan between each question and the next question
+        -Check the plan status using the check_plan tool
          
         """),
         ("human", "{input}"),
@@ -70,7 +70,7 @@ def start_interview_agent(plan: List[str]):
 
     # Present the first question
     response = agent.invoke({
-        "input": f"Here's the interview plan: {plan}"
+        "input": f"Here's the interview your needs: {plan}"
     })
 
     # Extract the tool's output directly from intermediate steps
