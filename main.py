@@ -1,25 +1,11 @@
-from core_rag import rag
 from typing import Annotated
 import candidate
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
+from interview_agent import start_interview_agent
+from needs import llm,State
 
-
-
-# State definition
-class State(TypedDict):
-    messages: Annotated[list, add_messages] # List of messages in the conversation
-    applied_role: str 
-    technical_skills: list
-    name: str
-    plan: list
-    scores: list
-    status: str
-    current_question: str
-    response: str
-    technical_score: str
-    report: str
 
 def start_interview(state: State):
     """Initialize interview state."""
@@ -55,7 +41,7 @@ def generate_interview_plan(state: State):
         Focus on the following skills: {', '.join(skills)}.
         Format each question as a numbered item:
         """
-        response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
+        response = llm.generate_response(query=prompt)  # Use the RAG system to generate questions
         # Extract only the actual questions, filtering out any explanatory text
         questions = []
         for line in response.split('\n'):
@@ -105,7 +91,7 @@ def evaluate_technical_response(state: State):
         Response: {state['response']}
         Provide a score out of 100 and detailed feedback. Be critical if necessary.
         """
-        evaluation = rag.generate_response(query=prompt)  # Use the RAG system to evaluate the response
+        evaluation = llm.generate_response(query=prompt)  # Use the RAG system to evaluate the response
         return {'technical_score': evaluation}
     except Exception as e:
         return {'technical_score': f"Evaluation failed: {str(e)}"}
@@ -144,17 +130,15 @@ def end_interview(state: State):
     print("\n" + state['report'])
     print("\nInterview completed. Thank you!")
 
-# Create and configure workflow
+# Define the workflow using StateGraph
 workflow = StateGraph(State)
 
-# Add nodes
+# Add nodes to the workflow
 nodes = [
     ("start", start_interview),
     ("init", initialize_candidate_info),
     ("gen_plan", generate_interview_plan),
-    ("check_plan", check_interview_plan),
-    ("present_q", present_question),
-    ("collect_resp", collect_response),
+    ("interview_agent", start_interview_agent),
     ("evaluate", evaluate_technical_response),
     ("calc_score", calculate_score),
     ("gen_report", generate_report),
@@ -164,22 +148,22 @@ nodes = [
 for name, func in nodes:
     workflow.add_node(name, func)
 
-# Configure workflow
+# Configure workflow edges
 workflow.set_entry_point("start")
 workflow.add_edge("start", "init")
 workflow.add_edge("init", "gen_plan")
-workflow.add_edge("gen_plan", "check_plan")
-workflow.add_edge("present_q", "collect_resp")
-workflow.add_edge("collect_resp", "evaluate")
+workflow.add_edge("gen_plan", "interview_agent")
+workflow.add_edge("interview_agent", "evaluate")
 workflow.add_edge("evaluate", "calc_score")
-workflow.add_edge("calc_score", "check_plan")
+workflow.add_edge("calc_score", "interview_agent")
 workflow.add_edge("gen_report", "end")
 workflow.set_finish_point("end")
 
+# Add conditional edges for plan checking within the agent
 workflow.add_conditional_edges(
-    "check_plan",
-    lambda s: "present_q" if s['status'] == 'Plan Incomplete' else "gen_report",
-    {"present_q": "present_q", "gen_report": "gen_report"}
+    "interview_agent",
+    lambda s: "gen_report" if s['status'] == 'Plan Complete' else "interview_agent",
+    {"interview_agent": "interview_agent", "gen_report": "gen_report"}
 )
 
 # Compile the workflow
@@ -190,6 +174,6 @@ if __name__ == "__main__":
     print("Starting interview workflow...\n")
     try:
         # Increase recursion limit to handle more questions
-        interview_flow.invoke({ "messages": [] }, config={"recursion_limit": 100})
+        interview_flow.invoke({"messages": []}, config={"recursion_limit": 100})
     except KeyboardInterrupt:
         print("\nInterview interrupted by user")

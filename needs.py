@@ -3,6 +3,24 @@ import os
 from dotenv import load_dotenv
 import google.generativeai as genai
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+# shared.py
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph.message import add_messages
+
+# State definition
+class State(TypedDict):
+    messages: Annotated[list, add_messages]  # List of messages in the conversation
+    applied_role: str
+    technical_skills: list
+    name: str
+    plan: list
+    scores: list
+    status: str
+    current_question: str
+    response: str
+    technical_score: str
+    report: str
 
 
 # Configure Google GenAI
