@@ -1,5 +1,4 @@
 import json
-from needs import llm
 from core_rag import rag
 
 with open('knowledge_base/doc2.txt', 'r') as f:
