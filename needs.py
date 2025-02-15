@@ -9,13 +9,15 @@ from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 
 # State definition
+from typing import List, Dict, TypedDict
+
 class State(TypedDict):
-    messages: Annotated[list, add_messages]  # List of messages in the conversation
+    messages: List[str]
     applied_role: str
-    technical_skills: list
+    technical_skills: List[str]
     name: str
-    plan: list
-    scores: list
+    plan: List[str]
+    scores: List[Dict[str, str]]
     status: str
     current_question: str
     response: str

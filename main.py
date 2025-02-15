@@ -4,7 +4,8 @@ from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 from interview_agent import start_interview_agent
-from needs import llm,State
+from needs import llm, State
+from core_rag import rag
 
 
 def start_interview(state: State):
@@ -20,7 +21,6 @@ def start_interview(state: State):
         'status': 'Plan Incomplete'
     }
 
-#TODO: candidate infos should be implemented from the rag knowledge base or db  <----------------------
 def initialize_candidate_info(state: State):
     """Initialize candidate information."""
     return {
@@ -41,7 +41,7 @@ def generate_interview_plan(state: State):
         Focus on the following skills: {', '.join(skills)}.
         Format each question as a numbered item:
         """
-        response = llm.generate_response(query=prompt)  # Use the RAG system to generate questions
+        response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
         # Extract only the actual questions, filtering out any explanatory text
         questions = []
         for line in response.split('\n'):
@@ -54,34 +54,6 @@ def generate_interview_plan(state: State):
     
     return {'plan': questions, 'status': 'Plan Incomplete'}
 
-def check_interview_plan(state: State):
-    """Checks the status of the interview plan."""
-    is_complete = not state['plan'] or len(state['plan']) == 0
-    return {'status': 'Plan Complete' if is_complete else 'Plan Incomplete'}
-
-def present_question(state: State):
-    """Presents the next question in the interview plan."""
-    if not state['plan']:
-        return {'current_question': '', 'status': 'Plan Complete'}
-    
-    current_question = state['plan'][0]
-    remaining_plan = state['plan'][1:]  # Remove the current question from the plan
-    
-    return {
-        'current_question': current_question,
-        'plan': remaining_plan  # Update the plan to remove the current question
-    }
-
-def collect_response(state: State):
-    """Collects the candidate's response to the current question."""
-    if state['current_question']:
-        print(f"\nQ: {state['current_question']}")
-        response = input("Your answer: ").strip()
-        return {
-            'response': response,
-        }
-    return {'response': ''}
-
 def evaluate_technical_response(state: State):
     """Evaluates the candidate's response to the current question."""
     try:
@@ -91,7 +63,7 @@ def evaluate_technical_response(state: State):
         Response: {state['response']}
         Provide a score out of 100 and detailed feedback. Be critical if necessary.
         """
-        evaluation = llm.generate_response(query=prompt)  # Use the RAG system to evaluate the response
+        evaluation = rag.generate_response(query=prompt)  # Use the RAG system to evaluate the response
         return {'technical_score': evaluation}
     except Exception as e:
         return {'technical_score': f"Evaluation failed: {str(e)}"}
