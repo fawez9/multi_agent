@@ -1,10 +1,8 @@
 from typing import Annotated
 import candidate
 from langgraph.graph import StateGraph
-from typing_extensions import TypedDict
-from langgraph.graph.message import add_messages
 from interview_agent import start_interview_agent
-from needs import llm, State
+from needs import State
 from core_rag import rag
 
 
@@ -57,14 +55,23 @@ def generate_interview_plan(state: State):
 def evaluate_technical_response(state: State):
     """Evaluates the candidate's response to the current question."""
     try:
+        # Check if we have both a question and a response
+        if not state.get('current_question') or not state.get('response'):
+            return {'technical_score': "Cannot evaluate: missing question or response"}
+        
         prompt = f"""
         Evaluate this technical response based on the job offer and candidate profile.
         Question: {state['current_question']}
         Response: {state['response']}
-        Provide a score out of 100 and detailed feedback. Be critical if necessary.
+        Provide a score out of 10.
         """
-        evaluation = rag.generate_response(query=prompt)  # Use the RAG system to evaluate the response
-        return {'technical_score': evaluation}
+        evaluation = rag.generate_response(query=prompt)
+        # Clear the current_question and response after evaluation
+        return {
+            'technical_score': evaluation,
+            'current_question': '',
+            'response': ''
+        }
     except Exception as e:
         return {'technical_score': f"Evaluation failed: {str(e)}"}
 
@@ -134,8 +141,12 @@ workflow.set_finish_point("end")
 # Add conditional edges for plan checking within the agent
 workflow.add_conditional_edges(
     "interview_agent",
-    lambda s: "gen_report" if s['status'] == 'Plan Complete' else "interview_agent",
-    {"interview_agent": "interview_agent", "gen_report": "gen_report"}
+    lambda s: "gen_report" if s.get('status') == 'Plan Complete' else "evaluate" if s.get('response') else "interview_agent",
+    {
+        "gen_report": "gen_report",
+        "evaluate": "evaluate", 
+        "interview_agent": "interview_agent"
+    }
 )
 
 # Compile the workflow

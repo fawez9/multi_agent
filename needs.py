@@ -7,6 +7,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from typing import Annotated
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
+from operator import add
 
 # State definition
 from typing import List, Dict, TypedDict
@@ -17,11 +18,11 @@ class State(TypedDict):
     technical_skills: List[str]
     name: str
     plan: List[str]
-    scores: List[Dict[str, str]]
+    scores: Annotated[List[Dict[str, str]], "List of scores"]
     status: str
     current_question: str
     response: str
-    technical_score: str
+    technical_score: Annotated[str, "Technical score"]
     report: str
 
 
