@@ -1,6 +1,6 @@
 from typing import Annotated
 import candidate
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph ,START, END
 from interview_agent import start_interview_agent
 from needs import State
 from core_rag import rag
@@ -35,7 +35,7 @@ def generate_interview_plan(state: State):
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 3 technical interview questions for the role of {role}.
+        Based on the job offer and candidate profile, generate 3 technical interview questions for the role of {role} make them short.
         Focus on the following skills: {', '.join(skills)}.
         Format each question as a numbered item:
         """
@@ -55,22 +55,22 @@ def generate_interview_plan(state: State):
 def evaluate_technical_response(state: State):
     """Evaluates the candidate's response to the current question."""
     try:
-        # Check if we have both a question and a response
         if not state.get('current_question') or not state.get('response'):
             return {'technical_score': "Cannot evaluate: missing question or response"}
-        
+
         prompt = f"""
-        Evaluate this technical response based on the job offer and candidate profile.
+        Evaluate this technical response based on the job offer and candidate profile make the answer as short as possible.
         Question: {state['current_question']}
         Response: {state['response']}
         Provide a score out of 10.
         """
         evaluation = rag.generate_response(query=prompt)
+
         # Clear the current_question and response after evaluation
         return {
             'technical_score': evaluation,
-            'current_question': '',
-            'response': ''
+            'current_question': state['current_question'],  # Clear the question
+            'response': state['response']  # Clear the response
         }
     except Exception as e:
         return {'technical_score': f"Evaluation failed: {str(e)}"}
@@ -82,7 +82,11 @@ def calculate_score(state: State):
         'response': state['response'],
         'evaluation': state['technical_score']
     }
-    return {'scores': [*state['scores'], new_score]}
+    return {
+        'scores': [*state['scores'], new_score],
+        'current_question': '',  # Clear the question
+        'response': ''  # Clear the response
+    }
 
 def generate_report(state: State):
     """Generates the final interview report."""
@@ -107,6 +111,10 @@ Skills: {', '.join(state['technical_skills'])}\n
 def end_interview(state: State):
     """Ends the interview and displays the final report."""
     print("\n" + state['report'])
+    print("\n---------------State Summary---------------")
+    for key, value in state.items():
+        print(f"{key}: {value}")
+    print("-------------------------------------------")
     print("\nInterview completed. Thank you!")
 
 # Define the workflow using StateGraph
@@ -128,7 +136,7 @@ for name, func in nodes:
     workflow.add_node(name, func)
 
 # Configure workflow edges
-workflow.set_entry_point("start")
+workflow.add_edge(START,"start")
 workflow.add_edge("start", "init")
 workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
@@ -136,18 +144,19 @@ workflow.add_edge("interview_agent", "evaluate")
 workflow.add_edge("evaluate", "calc_score")
 workflow.add_edge("calc_score", "interview_agent")
 workflow.add_edge("gen_report", "end")
-workflow.set_finish_point("end")
+workflow.add_edge("end",END)
 
-# Add conditional edges for plan checking within the agent
+
 workflow.add_conditional_edges(
     "interview_agent",
-    lambda s: "gen_report" if s.get('status') == 'Plan Complete' else "evaluate" if s.get('response') else "interview_agent",
+    lambda s: "evaluate" if s['status'] == 'Plan Incomplete' else "gen_report" if s['status'] == 'Plan Complete' else "end",
     {
-        "gen_report": "gen_report",
-        "evaluate": "evaluate", 
-        "interview_agent": "interview_agent"
+        "evaluate": "evaluate" , # Otherwise, continue evaluation
+        "gen_report": "gen_report",  # When all questions are done, generate the report
+        "end": "end"  # End the interview
     }
 )
+
 
 # Compile the workflow
 interview_flow = workflow.compile()

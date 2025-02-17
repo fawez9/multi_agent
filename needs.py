@@ -22,7 +22,7 @@ class State(TypedDict):
     status: str
     current_question: str
     response: str
-    technical_score: Annotated[str, "Technical score"]
+    technical_score: Annotated[str, "Technical score"] # Annotated is used to add metadata to the type
     report: str
 
 
