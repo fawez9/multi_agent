@@ -24,7 +24,7 @@ name = data.get("name")
 applied_role = data.get("applied_role")
 technical_skills = data.get("technical_skills")
 
-# Now you can use these variables as needed
+
 print(f"Name: {name}")
 print(f"Applied Role: {applied_role}")
 print(f"Technical Skills: {technical_skills}")

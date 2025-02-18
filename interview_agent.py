@@ -1,10 +1,11 @@
-from langchain_core.tools import tool
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.prompts import ChatPromptTemplate
-from needs import llm, State
-from pydantic import BaseModel, Field
 import time
+from needs import llm, State
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import AgentExecutor, create_tool_calling_agent
 
+# state param schema for tools that require the state object
 class StateParam(BaseModel):
     state: dict = Field(..., description="The current interview state")
 
@@ -78,7 +79,7 @@ def create_interview_agent(llm):
 
 agent = create_interview_agent(llm)
 def start_interview_agent(state: State):
-    """Manages the interview process with exactly three steps."""
+    """Manages the interview process."""
     working_state = state.copy()
     # print('Initial state:', working_state)
     
@@ -90,18 +91,18 @@ def start_interview_agent(state: State):
             if working_state.get('status') == 'Plan Complete':
                 break
             working_state['current_step'] = i
-            
+            # invoke the agent with the current state
             result = agent.invoke({
                 "input": working_state
             })
             
-            # Update working state with any changes
+            # Update working state with the result of the agent
             for step in result["intermediate_steps"]:
                 if isinstance(step[1], dict):
                     working_state.update(step[1])
             
             #print(f"State after step {i}:", working_state)
-            time.sleep(2)
+            time.sleep(2) # Add a delay between steps
             
         return working_state
         
