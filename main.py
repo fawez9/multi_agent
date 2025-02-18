@@ -1,6 +1,6 @@
 from typing import Annotated
 import candidate
-from langgraph.graph import StateGraph ,START, END
+from langgraph.graph import StateGraph 
 from interview_agent import start_interview_agent
 from needs import State
 from core_rag import rag
@@ -35,7 +35,7 @@ def generate_interview_plan(state: State):
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 3 technical interview questions for the role of {role} make them short.
+        Based on the job offer and candidate profile, generate 2 technical interview questions for the role of {role} make them as short as possible.
         Focus on the following skills: {', '.join(skills)}.
         Format each question as a numbered item:
         """
@@ -44,13 +44,13 @@ def generate_interview_plan(state: State):
         questions = []
         for line in response.split('\n'):
             line = line.strip()
-            if line and any(line.startswith(f"{i}.") for i in range(1, 4)):  # Check if line starts with a number
+            if line and any(line.startswith(f"{i}.") for i in range(1, 3)):  # Check if line starts with a number
                 questions.append(line.strip())
     except Exception as e:
         print(f"API Error: {str(e)}")
         return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
     
-    return {'plan': questions, 'status': 'Plan Incomplete'}
+    return {'plan': questions}
 
 def evaluate_technical_response(state: State):
     """Evaluates the candidate's response to the current question."""
@@ -69,8 +69,8 @@ def evaluate_technical_response(state: State):
         # Clear the current_question and response after evaluation
         return {
             'technical_score': evaluation,
-            'current_question': state['current_question'],  # Clear the question
-            'response': state['response']  # Clear the response
+            'current_question': state['current_question'],  
+            'response': state['response']  
         }
     except Exception as e:
         return {'technical_score': f"Evaluation failed: {str(e)}"}
@@ -92,7 +92,7 @@ def generate_report(state: State):
     """Generates the final interview report."""
     report = [
         f"""
------------------Interview Report for {state['name']}------------------
+----------------Interview Report for {state['name']}------------------
 Position: {state['applied_role']}
 Skills: {', '.join(state['technical_skills'])}\n
 -----------------Technical Interview Scores----------------------------
@@ -111,10 +111,6 @@ Skills: {', '.join(state['technical_skills'])}\n
 def end_interview(state: State):
     """Ends the interview and displays the final report."""
     print("\n" + state['report'])
-    print("\n---------------State Summary---------------")
-    for key, value in state.items():
-        print(f"{key}: {value}")
-    print("-------------------------------------------")
     print("\nInterview completed. Thank you!")
 
 # Define the workflow using StateGraph
@@ -136,15 +132,15 @@ for name, func in nodes:
     workflow.add_node(name, func)
 
 # Configure workflow edges
-workflow.add_edge(START,"start")
+workflow.set_entry_point("start")
 workflow.add_edge("start", "init")
 workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
-workflow.add_edge("interview_agent", "evaluate")
+# workflow.add_edge("interview_agent", "evaluate")
 workflow.add_edge("evaluate", "calc_score")
 workflow.add_edge("calc_score", "interview_agent")
 workflow.add_edge("gen_report", "end")
-workflow.add_edge("end",END)
+workflow.set_finish_point("end")
 
 
 workflow.add_conditional_edges(
