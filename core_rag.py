@@ -10,7 +10,7 @@ class BaseRAG:
     """Base RAG class for multi-agent system"""
     
     def __init__(self, 
-                 docs_path: str = "./knowledge_base",
+                 docs_path: str = "./knowledge_base", #can be changed to be parameterized
                  collection_name: Optional[str] = None,
                  chunk_size: int = 1000,
                  chunk_overlap: int = 200):
@@ -36,9 +36,9 @@ class BaseRAG:
         """Initialize or load the vector store"""
         index_path = f"./vectorstores/{self.collection_name}" if self.collection_name else "./vectorstores/default"
         
-        if os.path.exists(f"{index_path}.faiss"):
+        if os.path.exists(f"{index_path}/index.faiss"):
             print(f"Loading existing FAISS index from {index_path}...")
-            return FAISS.load_local(index_path, self.embeddings)
+            return FAISS.load_local(index_path, self.embeddings,allow_dangerous_deserialization=True)
         else:
             print("Creating new FAISS index...")
             return self._create_new_vectorstore()
@@ -167,20 +167,10 @@ class BaseRAG:
         else:
             print("No new documents were added.")
 
+# Initialize the RAG system
 rag = BaseRAG(docs_path="./knowledge_base", collection_name="my_index")
-""" # Example usage
+
+# Example usage
 if __name__ == "__main__":
-    # Initialize the RAG system
-    
-    # Query the system
-    query = "Where is the Eiffel Tower located?"
-    response = rag.generate_response(query)
-    print("Response:", response)
-    
-    # Add new documents
-    # rag.add_documents(["./new_docs/doc1.txt", "./new_docs/doc2.txt"])
-    
-    # Query again with the updated knowledge base
-    query = "What is the highest peak in the world?"
-    response = rag.generate_response(query)
-    print("Updated Response:", response) """
+    response = rag.generate_response("What is the candidate name?")
+    print(response)
