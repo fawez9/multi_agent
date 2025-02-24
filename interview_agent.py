@@ -4,8 +4,8 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.messages import HumanMessage, SystemMessage
 
-# state param schema for tools that require the state object
 class StateParam(BaseModel):
     state: dict = Field(..., description="The current interview state")
 
@@ -26,8 +26,14 @@ def present_question(state: dict) -> dict:
     """Presents the next question in the interview plan."""
     try:
         plan = state.get("plan", [])
-        current_question = plan.pop(0)
+        current_question = plan[0]
         print(f"\nQ: {current_question}")
+        if not state.get('question_refined'):
+            return {
+                'current_question': current_question,
+                'plan': plan,
+                'question_refined': False  # Reset the refined flag for the new question
+            }
         return {
             'current_question': current_question,
             'plan': plan
@@ -42,18 +48,56 @@ def collect_response(state: dict) -> dict:
     try:
         if state.get("current_question"):
             response = input("Your answer: ")
+            
+            if not state.get('question_refined'):
+                # Create proper message format for LLM
+                messages = [
+                    SystemMessage(content="Answer with only 'yes' or 'no'."),
+                    HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'?")
+                ]
+                
+                check = llm.invoke(messages)
+                if check.content.lower().strip() == 'no':
+                    return {'refine': True}
+            plan = state.get("plan", [])
+            plan.pop(0)
             return {
-                'response': response
+                'response': response,
+                'plan': plan
             }
         return {'response': ''}
     except Exception as e:
         print(f"Error in collect_response: {str(e)}")
         return {'status': 'Error'}
+    
+@tool(args_schema=StateParam)
+def refine_question(state: dict) -> dict:
+    """Refines the candidate's response to the current question."""
+    try:
+        if state.get("refine"):
+            # Create proper message format for LLM
+            messages = [
+                SystemMessage(content="You are an expert interviewer. Please refine the following question to make it clearer while keeping it concise and short as possible."),
+                HumanMessage(content=f"Question to refine: {state['current_question']}")
+            ]
+            
+            refined = llm.invoke(messages)
+            plan = state.get("plan", [])
+            plan[0] = refined.content
+            return {
+                'plan': plan,
+                'refine': False,
+                'question_refined': True  # Mark the question as refined
+            }
+        return {'current_question': state.get('current_question', '')}
+    except Exception as e:
+        print(f"Error in refine_response: {str(e)}")
+        return {'status': 'Error'}
 
 def create_interview_agent(llm):
     """Creates an agent that conducts the interview."""
-    tools = [check_interview_plan, present_question, collect_response]
-    prompt = ChatPromptTemplate([
+    tools = [check_interview_plan, present_question, collect_response, refine_question]
+    prompt = ChatPromptTemplate.from_messages([
         ("system", """
         You are an interviewer conducting an interview. The state includes a 'current_step' that tells you what to do:
         
@@ -61,6 +105,8 @@ def create_interview_agent(llm):
         1: You must use check_interview_plan only
         2: You must use present_question only
         3: You must use collect_response only
+        4: You must use refine_question only
+        
         
         Follow the step exactly - use only the tool specified for the current step.
         When using a tool, pass the entire state object.
@@ -81,17 +127,17 @@ agent = create_interview_agent(llm)
 def start_interview_agent(state: State):
     """Manages the interview process."""
     working_state = state.copy()
-    # print('Initial state:', working_state)
     
     try:
         print(f"\nStarting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
         
-        # Run through the three steps
-        for i in range(1, 4):
+        # Run through the steps
+        i = 1
+        while i <= 3:
             if working_state.get('status') == 'Plan Complete':
                 break
+                
             working_state['current_step'] = i
-            # invoke the agent with the current state
             result = agent.invoke({
                 "input": working_state
             })
@@ -101,8 +147,21 @@ def start_interview_agent(state: State):
                 if isinstance(step[1], dict):
                     working_state.update(step[1])
             
-            #print(f"State after step {i}:", working_state)
-            time.sleep(2) # Add a delay between steps
+            
+            if working_state.get('refine'):
+                working_state['current_step'] = 4
+                result = agent.invoke({
+                    "input": working_state
+                })
+                
+                # Update working state with the result of the agent
+                for step in result["intermediate_steps"]:
+                    if isinstance(step[1], dict):
+                        working_state.update(step[1])
+                i =1
+            i += 1
+            
+            time.sleep(2)
             
         return working_state
         
@@ -119,6 +178,8 @@ if __name__ == "__main__":
         'plan': ["What is your greatest strength?", "Why do you want this job?"],
         'current_question': '',
         'response': '',
-        'status': 'Plan Incomplete'
+        'status': 'Plan Incomplete',
+        'refine': False,
+        'question_refined': False
     }
     start_interview_agent(test_state)
