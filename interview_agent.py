@@ -1,4 +1,5 @@
 import time
+import traceback
 from needs import llm, State
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -163,13 +164,10 @@ def start_interview_agent(state: State):
                 i =1
             i += 1
             
-            time.sleep(2)
-            
         return working_state
         
     except Exception as e:
         print(f"Error in start_interview_agent: {str(e)}")
-        import traceback
         traceback.print_exc()
         return {"status": "Error", "error": str(e)}
 

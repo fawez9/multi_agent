@@ -4,6 +4,7 @@ from needs import State
 from core_rag import rag
 from langgraph.graph import StateGraph 
 from interview_agent import start_interview_agent
+from evaluation_agent import start_evaluation_agent
 
 
 def start_interview(state: State):
@@ -124,8 +125,7 @@ nodes = [
     ("init", initialize_candidate_info),
     ("gen_plan", generate_interview_plan),
     ("interview_agent", start_interview_agent),
-    ("evaluate", evaluate_technical_response),
-    ("calc_score", calculate_score),
+    ("evaluation_agent",start_evaluation_agent),
     ("gen_report", generate_report),
     ("end", end_interview)
 ]
@@ -142,19 +142,16 @@ workflow.add_edge("gen_plan", "interview_agent")
 # Add conditional edges based on the interview status
 workflow.add_conditional_edges(
     "interview_agent",
-    lambda s: "evaluate" if s['status'] == 'Plan Incomplete' else "gen_report" if s['status'] == 'Plan Complete' else "end",
+    lambda s: "evaluation_agent" if s['status'] == 'Plan Incomplete' else "gen_report" if s['status'] == 'Plan Complete' else "end",
     {
-        "evaluate": "evaluate" , # Otherwise, continue evaluation
+        "evaluation_agent": "evaluation_agent" , # Otherwise, continue evaluation
         "gen_report": "gen_report",  # When all questions are done, generate the report
         "end": "end"  # End the interview
     }
 )
-workflow.add_edge("evaluate", "calc_score")
-workflow.add_edge("calc_score", "interview_agent")
+workflow.add_edge("evaluation_agent", "interview_agent")
 workflow.add_edge("gen_report", "end")
 workflow.set_finish_point("end")
-
-
 
 
 # Compile the workflow
