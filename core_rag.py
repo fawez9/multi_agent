@@ -1,4 +1,5 @@
 import os
+import time
 from needs import llm, embeddings  
 from typing import Optional, List
 from langchain.schema import Document
@@ -125,6 +126,7 @@ class BaseRAG:
         # Generate response using LLM
         prompt = f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
         response = llm.invoke(prompt)
+        time.sleep(2)
         
         return response.content
 

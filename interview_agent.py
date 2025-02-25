@@ -57,6 +57,7 @@ def collect_response(state: dict) -> dict:
                 ]
                 
                 check = llm.invoke(messages)
+                time.sleep(2)
                 if check.content.lower().strip() == 'no':
                     return {'refine': True}
             plan = state.get("plan", [])
@@ -82,6 +83,7 @@ def refine_question(state: dict) -> dict:
             ]
             
             refined = llm.invoke(messages)
+            time.sleep(2)
             plan = state.get("plan", [])
             plan[0] = refined.content
             return {
@@ -141,7 +143,7 @@ def start_interview_agent(state: State):
             result = agent.invoke({
                 "input": working_state
             })
-            
+            time.sleep(2)
             # Update working state with the result of the agent
             for step in result["intermediate_steps"]:
                 if isinstance(step[1], dict):
@@ -153,7 +155,7 @@ def start_interview_agent(state: State):
                 result = agent.invoke({
                     "input": working_state
                 })
-                
+                time.sleep(2)
                 # Update working state with the result of the agent
                 for step in result["intermediate_steps"]:
                     if isinstance(step[1], dict):

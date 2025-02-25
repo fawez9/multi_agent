@@ -1,4 +1,5 @@
 import json
+import time
 from core_rag import rag
 
 with open('knowledge_base/doc2.txt', 'r') as f:
@@ -15,6 +16,7 @@ prompt = f"""
         """
 
 json_response = rag.generate_response(query=prompt)
+time.sleep(2)
 # print(json_response)
 
 # Parse the JSON string into a Python dictionary

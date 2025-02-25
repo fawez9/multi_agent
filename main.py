@@ -1,3 +1,4 @@
+import time
 import candidate
 from needs import State
 from core_rag import rag
@@ -39,6 +40,7 @@ def generate_interview_plan(state: State):
         Format each question as a numbered item:
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
+        time.sleep(2)
         # Extract only the actual questions, filtering out any explanatory text
         questions = []
         for line in response.split('\n'):
@@ -64,6 +66,7 @@ def evaluate_technical_response(state: State):
         Provide a score out of 10.
         """
         evaluation = rag.generate_response(query=prompt)
+        time.sleep(2)
 
         # Clear the current_question and response after evaluation
         return {
