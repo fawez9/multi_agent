@@ -1,7 +1,10 @@
 .venv
 .env
+.vscode
 __pycache__
 test.py
 knowledge_base
 new_docs
 vectorstores
+interview_db.ini
+config.py

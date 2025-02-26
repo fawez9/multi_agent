@@ -1,4 +1,5 @@
 import json
+import time
 from core_rag import rag
 
 with open('knowledge_base/doc2.txt', 'r') as f:
@@ -15,6 +16,7 @@ prompt = f"""
         """
 
 json_response = rag.generate_response(query=prompt)
+time.sleep(2)
 # print(json_response)
 
 # Parse the JSON string into a Python dictionary
@@ -24,7 +26,7 @@ name = data.get("name")
 applied_role = data.get("applied_role")
 technical_skills = data.get("technical_skills")
 
-# Now you can use these variables as needed
+
 print(f"Name: {name}")
 print(f"Applied Role: {applied_role}")
 print(f"Technical Skills: {technical_skills}")

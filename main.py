@@ -1,25 +1,11 @@
-from core_rag import rag
-from typing import Annotated
+import time
 import candidate
-from langgraph.graph import StateGraph
-from typing_extensions import TypedDict
-from langgraph.graph.message import add_messages
+from needs import State
+from core_rag import rag
+from langgraph.graph import StateGraph 
+from interview_agent import start_interview_agent
+from evaluation_agent import start_evaluation_agent
 
-
-
-# State definition
-class State(TypedDict):
-    messages: Annotated[list, add_messages] # List of messages in the conversation
-    applied_role: str 
-    technical_skills: list
-    name: str
-    plan: list
-    scores: list
-    status: str
-    current_question: str
-    response: str
-    technical_score: str
-    report: str
 
 def start_interview(state: State):
     """Initialize interview state."""
@@ -34,7 +20,6 @@ def start_interview(state: State):
         'status': 'Plan Incomplete'
     }
 
-#TODO: candidate infos should be implemented from the rag knowledge base or db  <----------------------
 def initialize_candidate_info(state: State):
     """Initialize candidate information."""
     return {
@@ -51,62 +36,45 @@ def generate_interview_plan(state: State):
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 3 technical interview questions for the role of {role}.
+        Based on the job offer and candidate profile, generate 2 technical interview questions for the role of {role} make them as short as possible.
         Focus on the following skills: {', '.join(skills)}.
         Format each question as a numbered item:
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
+        time.sleep(2)
         # Extract only the actual questions, filtering out any explanatory text
         questions = []
         for line in response.split('\n'):
             line = line.strip()
-            if line and any(line.startswith(f"{i}.") for i in range(1, 4)):  # Check if line starts with a number
+            if line and any(line.startswith(f"{i}.") for i in range(1, 3)):  # Check if line starts with a number
                 questions.append(line.strip())
     except Exception as e:
         print(f"API Error: {str(e)}")
         return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
     
-    return {'plan': questions, 'status': 'Plan Incomplete'}
-
-def check_interview_plan(state: State):
-    """Checks the status of the interview plan."""
-    is_complete = not state['plan'] or len(state['plan']) == 0
-    return {'status': 'Plan Complete' if is_complete else 'Plan Incomplete'}
-
-def present_question(state: State):
-    """Presents the next question in the interview plan."""
-    if not state['plan']:
-        return {'current_question': '', 'status': 'Plan Complete'}
-    
-    current_question = state['plan'][0]
-    remaining_plan = state['plan'][1:]  # Remove the current question from the plan
-    
-    return {
-        'current_question': current_question,
-        'plan': remaining_plan  # Update the plan to remove the current question
-    }
-
-def collect_response(state: State):
-    """Collects the candidate's response to the current question."""
-    if state['current_question']:
-        print(f"\nQ: {state['current_question']}")
-        response = input("Your answer: ").strip()
-        return {
-            'response': response,
-        }
-    return {'response': ''}
+    return {'plan': questions}
 
 def evaluate_technical_response(state: State):
     """Evaluates the candidate's response to the current question."""
     try:
+        if not state.get('current_question') or not state.get('response'):
+            return {'technical_score': "Cannot evaluate: missing question or response"}
+
         prompt = f"""
-        Evaluate this technical response based on the job offer and candidate profile.
+        Evaluate this technical response based on the job offer and candidate profile make the answer as short as possible.
         Question: {state['current_question']}
         Response: {state['response']}
-        Provide a score out of 100 and detailed feedback. Be critical if necessary.
+        Provide a score out of 10.
         """
-        evaluation = rag.generate_response(query=prompt)  # Use the RAG system to evaluate the response
-        return {'technical_score': evaluation}
+        evaluation = rag.generate_response(query=prompt)
+        time.sleep(2)
+
+        # Clear the current_question and response after evaluation
+        return {
+            'technical_score': evaluation,
+            'current_question': state['current_question'],  
+            'response': state['response']  
+        }
     except Exception as e:
         return {'technical_score': f"Evaluation failed: {str(e)}"}
 
@@ -117,13 +85,17 @@ def calculate_score(state: State):
         'response': state['response'],
         'evaluation': state['technical_score']
     }
-    return {'scores': [*state['scores'], new_score]}
+    return {
+        'scores': [*state['scores'], new_score],
+        'current_question': '',  # Clear the question
+        'response': ''  # Clear the response
+    }
 
 def generate_report(state: State):
     """Generates the final interview report."""
     report = [
         f"""
------------------Interview Report for {state['name']}------------------
+----------------Interview Report for {state['name']}------------------
 Position: {state['applied_role']}
 Skills: {', '.join(state['technical_skills'])}\n
 -----------------Technical Interview Scores----------------------------
@@ -144,19 +116,16 @@ def end_interview(state: State):
     print("\n" + state['report'])
     print("\nInterview completed. Thank you!")
 
-# Create and configure workflow
+# Define the workflow using StateGraph
 workflow = StateGraph(State)
 
-# Add nodes
+# Add nodes to the workflow
 nodes = [
     ("start", start_interview),
     ("init", initialize_candidate_info),
     ("gen_plan", generate_interview_plan),
-    ("check_plan", check_interview_plan),
-    ("present_q", present_question),
-    ("collect_resp", collect_response),
-    ("evaluate", evaluate_technical_response),
-    ("calc_score", calculate_score),
+    ("interview_agent", start_interview_agent),
+    ("evaluation_agent",start_evaluation_agent),
     ("gen_report", generate_report),
     ("end", end_interview)
 ]
@@ -164,23 +133,26 @@ nodes = [
 for name, func in nodes:
     workflow.add_node(name, func)
 
-# Configure workflow
+# Configure workflow edges
 workflow.set_entry_point("start")
 workflow.add_edge("start", "init")
 workflow.add_edge("init", "gen_plan")
-workflow.add_edge("gen_plan", "check_plan")
-workflow.add_edge("present_q", "collect_resp")
-workflow.add_edge("collect_resp", "evaluate")
-workflow.add_edge("evaluate", "calc_score")
-workflow.add_edge("calc_score", "check_plan")
+workflow.add_edge("gen_plan", "interview_agent")
+
+# Add conditional edges based on the interview status
+workflow.add_conditional_edges(
+    "interview_agent",
+    lambda s: "evaluation_agent" if s['status'] == 'Plan Incomplete' else "gen_report" if s['status'] == 'Plan Complete' else "end",
+    {
+        "evaluation_agent": "evaluation_agent" , # Otherwise, continue evaluation
+        "gen_report": "gen_report",  # When all questions are done, generate the report
+        "end": "end"  # End the interview
+    }
+)
+workflow.add_edge("evaluation_agent", "interview_agent")
 workflow.add_edge("gen_report", "end")
 workflow.set_finish_point("end")
 
-workflow.add_conditional_edges(
-    "check_plan",
-    lambda s: "present_q" if s['status'] == 'Plan Incomplete' else "gen_report",
-    {"present_q": "present_q", "gen_report": "gen_report"}
-)
 
 # Compile the workflow
 interview_flow = workflow.compile()
@@ -190,6 +162,6 @@ if __name__ == "__main__":
     print("Starting interview workflow...\n")
     try:
         # Increase recursion limit to handle more questions
-        interview_flow.invoke({ "messages": [] }, config={"recursion_limit": 100})
+        interview_flow.invoke({"messages": []}, config={"recursion_limit": 100})
     except KeyboardInterrupt:
         print("\nInterview interrupted by user")
