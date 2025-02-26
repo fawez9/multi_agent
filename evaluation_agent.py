@@ -72,9 +72,10 @@ def calculate_score(state: dict) -> dict:
                 'evaluation': state.get('technical_score', 'No score')
             }
             return {
-                'scores': state.get('scores', []) + [new_score],
+                'scores': [*state['scores'], new_score],
                 'current_question': '',
                 'response': '',
+                'technical_score': ''
             }
         return state
     except Exception as e:
@@ -102,6 +103,9 @@ def create_evaluation_agent():
         ... (this Thought/Action/Action Input/Observation can repeat N times)
         Thought: I now know the final action to take
         Final Answer: the final action to the original input state
+         
+         Imprtant:
+         - The status should never be touched
 
         Begin!"""),
         ("human", "State: {input}"),
