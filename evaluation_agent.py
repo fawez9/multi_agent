@@ -67,15 +67,14 @@ def calculate_score(state: dict) -> dict:
             state = ast.literal_eval(state)
         if state.get('evaluated'):
             new_score = {
-                'question': state.get('current_question', 'Unknown question'),
-                'response': state.get('response', 'No response'),
-                'evaluation': state.get('technical_score', 'No score')
-            }
+            'question': state.get('current_question', ''),
+            'response': state.get('response', ''),
+            'evaluation': state.get('technical_score', '')
+        }
             return {
                 'scores': [*state['scores'], new_score],
                 'current_question': '',
                 'response': '',
-                'technical_score': ''
             }
         return state
     except Exception as e:
@@ -89,25 +88,36 @@ def create_evaluation_agent():
     
     # Fixed: Use proper syntax for ChatPromptTemplate
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an evaluator of an interview. You have the following tools:
+        ("system", """
+         You are an evaluator of an interview. You have the following tools:  
 
-        {tools}
+        {tools}  
 
-        Use the following format:
+        ### **Format:**  
+        State: (current state as a Python dictionary)  
+        Thought: Analyze the state and decide what to do next  
+        Action: The action to take, must be one of [{tool_names}]  
+        Action Input: The input to the action  
+        Observation: The result of the action, which updates the state  
+        Thought: Reevaluate based on the updated state and decide the next step  
+        ... (repeat until termination)  
+        Final Answer: The final decision based on the evaluated state  
 
-        State: the state you are going to understand (python dictionary)
-        Thought: you should always think about what to do
-        Action: the action to take, should be one of [{tool_names}]
-        Action Input: the input to the action
-        Observation: the result of the action
-        ... (this Thought/Action/Action Input/Observation can repeat N times)
-        Thought: I now know the final action to take
-        Final Answer: the final action to the original input state
-         
-         Imprtant:
-         - The status should never be touched
+        ### **Important Rules:**  
 
-        Begin!"""),
+        1. **Never modify the status manually.** Use the available tools to ensure the state is updated correctly.  
+
+        2. **Always determine which tool to execute based on the state.** If an action is required, select the appropriate tool and execute it.  
+
+        3. **Ensure that the state is updated as needed.** If a tool does not fully update the state, take additional steps to correct it before proceeding.  
+
+        4. **Use only the provided tools.** Do not invent new actions or modify the state outside of tool operations.  
+
+        5. **Once the evaluation reaches a conclusion, stop immediately and return the final state.**
+
+        6. **Make sure to give the  tools the whole state , to ensure that the state is fully updated.**.
+
+        """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
     ])

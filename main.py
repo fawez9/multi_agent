@@ -24,20 +24,20 @@ def initialize_candidate_info(state: State):
     """Initialize candidate information."""
     return {
         'applied_role': candidate.applied_role,
-        'technical_skills': candidate.technical_skills,
+        'skills': candidate.skills,
         'name': candidate.name,
     }
 
 def generate_interview_plan(state: State):
     """Generates an interview plan based on the candidate's role and skills."""
     role = state.get('applied_role', state['applied_role'])
-    skills = state.get('technical_skills', state['technical_skills'])
+    skills = state.get('skills')
     
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 2 technical interview questions for the role of {role} make them as short as possible.
-        Focus on the following skills: {', '.join(skills)}.
+        Based on the job offer and candidate profile, generate 2 interview questions for the role of {role} make them as short as possible.
+        Focus on the following skills: {skills}.
         Format each question as a numbered item:
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
@@ -97,7 +97,7 @@ def generate_report(state: State):
         f"""
 ----------------Interview Report for {state['name']}------------------
 Position: {state['applied_role']}
-Skills: {', '.join(state['technical_skills'])}\n
+Skills: {state['skills']}\n
 -----------------Technical Interview Scores----------------------------
 """
     ]

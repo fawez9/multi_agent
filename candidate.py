@@ -5,15 +5,12 @@ from core_rag import rag
 with open('knowledge_base/doc2.txt', 'r') as f:
     text = f.read()
 
-prompt = f"""
-        Extract the following  and return ONLY the following information in this format:
+prompt = f"""provide infos in json without writing (```json) i want the direct json response
         {{
-            "name": "candidate name",
-            "applied_role": "role they're applying for",
-            "technical_skills": ["skill1", "skill2", ...]
-        }}
-        rules: please dont write the json word at the beginning
-        """
+        "name": "username",
+        "applied_role": "role",
+        "skills": ["skill1", "skill2", "..."]
+        }}"""
 
 json_response = rag.generate_response(query=prompt)
 time.sleep(2)
@@ -24,9 +21,9 @@ data = json.loads(json_response)
 # Extract information into variables
 name = data.get("name")
 applied_role = data.get("applied_role")
-technical_skills = data.get("technical_skills")
+skills = data.get("skills")
 
 
 print(f"Name: {name}")
 print(f"Applied Role: {applied_role}")
-print(f"Technical Skills: {technical_skills}")
+print(f"Skills: {skills}")
