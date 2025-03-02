@@ -31,7 +31,7 @@ class StateParam(BaseModel):
     
 
 @tool(args_schema=StateParam)
-def evaluate_technical_response(state: dict) -> dict:
+def evaluate_response(state: dict) -> dict:
     """Evaluates the candidate's response with a concise score and short feedback."""
     try:
          # Ensure state is a dictionary
@@ -54,7 +54,7 @@ def evaluate_technical_response(state: dict) -> dict:
             'evaluated': True
         }
     except Exception as e:
-        print(f"Error in evaluate_technical_response: {str(e)}")
+        print(f"Error in evaluate_response: {str(e)}")
         traceback.print_exc()
         return {'technical_score': "Evaluation failed"}
 
@@ -67,15 +67,15 @@ def calculate_score(state: dict) -> dict:
             state = ast.literal_eval(state)
         if state.get('evaluated'):
             new_score = {
-                'question': state.get('current_question', 'Unknown question'),
-                'response': state.get('response', 'No response'),
-                'evaluation': state.get('technical_score', 'No score')
-            }
+            'question': state.get('current_question', ''),
+            'response': state.get('response', ''),
+            'evaluation': state.get('technical_score', '')
+        }
             return {
                 'scores': [*state['scores'], new_score],
                 'current_question': '',
                 'response': '',
-                'technical_score': ''
+                'technical_score': '',
             }
         return state
     except Exception as e:
@@ -85,34 +85,43 @@ def calculate_score(state: dict) -> dict:
 
 
 def create_evaluation_agent():
-    tools = [evaluate_technical_response, calculate_score]
+    tools = [evaluate_response, calculate_score]
     
     # Fixed: Use proper syntax for ChatPromptTemplate
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an evaluator of an interview. You have the following tools:
+        ("system", """
+         You are an evaluator of an interview. You have the following tools:  
 
-        {tools}
+        {tools}  
 
-        Use the following format:
+        ### **Format:**  
+        State: (current state as a Python dictionary)  
+        Thought: Analyze the state and decide what to do next  
+        Action: The action to take, must be one of [{tool_names}]  
+        Action Input: The input to the action  
+        Observation: The result of the action, which updates the state  
+        Thought: Reevaluate based on the updated state and decide the next step  
+        ... (repeat until termination)  
+        Final Answer: The final decision based on the evaluated state  
 
-        State: the state you are going to understand (python dictionary)
-        Thought: you should always think about what to do
-        Action: the action to take, should be one of [{tool_names}]
-        Action Input: the input to the action
-        Observation: the result of the action
-        ... (this Thought/Action/Action Input/Observation can repeat N times)
-        Thought: I now know the final action to take
-        Final Answer: the final action to the original input state
-         
-         Imprtant:
-         - The status should never be touched
+        ### **Important Rules:**  
 
-        Begin!"""),
+        1. **Never modify the status.** this is for the interview completion not for the evaluation. 
+
+        2. **Always determine which tool to execute based on the state.** If an action is required, select the appropriate tool and execute it.    
+
+        3. **Use only the provided tools.** Do not invent new actions or modify the state outside of tool operations.  
+
+        4. **Once the evaluation reaches a conclusion, stop immediately and return the final state.**
+
+        5. **Make sure to give the  tools the whole state , to ensure that the state is fully updated correctly.**.
+
+        """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
     ])
     
-    # Fixed: Correct order of arguments and use keyword arguments
+
     agent = create_react_agent(llm=llm, prompt=prompt, tools=tools)
     return AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True)
 

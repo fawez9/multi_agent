@@ -30,7 +30,7 @@ class StateParam(BaseModel):
 def check_interview_plan(state: dict) -> dict:
     """Checks the status of the interview plan."""
     try:
-                 # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
         plan = state.get("plan", [])
@@ -45,7 +45,7 @@ def check_interview_plan(state: dict) -> dict:
 def present_question(state: dict) -> dict:
     """Presents the next question in the interview plan."""
     try:
-                 # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
         plan = state.get("plan", [])
@@ -54,12 +54,10 @@ def present_question(state: dict) -> dict:
         if not state.get('question_refined'):
             return {
                 'current_question': current_question,
-                'plan': plan,
                 'question_refined': False  # Reset the refined flag for the new question
             }
         return {
             'current_question': current_question,
-            'plan': plan
         }
     except Exception as e:
         print(f"Error in present_question: {str(e)}")
@@ -69,7 +67,7 @@ def present_question(state: dict) -> dict:
 def collect_response(state: dict) -> dict:
     """Collects the candidate's response to the current question."""
     try:
-                 # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
         if state.get("current_question"):
@@ -108,7 +106,7 @@ def refine_question(state: dict) -> dict:
         if state.get("refine"):
             # Create proper message format for LLM
             messages = [
-                SystemMessage(content="You are an expert interviewer. Please refine the following question to make it clearer while keeping it concise and short as possible."),
+                SystemMessage(content="Please refine the following question to make it clearer while keeping it concise and short as possible."),
                 HumanMessage(content=f"Question to refine: {state['current_question']}")
             ]
             
@@ -130,31 +128,44 @@ def create_interview_agent(llm):
     """Creates an agent that conducts the interview."""
     tools = [check_interview_plan, present_question, collect_response, refine_question]
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an interviewer conducting an interview to a candidate. You have the following tools:
+        ("system", """
+         You are an interviewer conducting an interview with a candidate. Use the following tools to manage the process:  
 
-        {tools}
+        Tools:  
+        {tools}  
 
-        Use the following format:
+        ### **Format:**  
+        State: (current state as Python dictionary, **read-only** - tools update this automatically)  
+        Thought: (analyze state and tool outputs to decide the next action)  
+        Action: (the action to take, must be one of [{tool_names}])  
+        Action Input: (the input to the action)  
+        Observation: (result from the tool, updates the state)  
+        Thought: (reevaluate the next step based on observations)
+         ... (repeat until termination)   
+        Final Answer: (final action when the interview process reaches completion)  
 
-        State: the state you are going to understand (python dictionary)
-        Thought: you should always think about what to do
-        Action: the action to take, should be one of [{tool_names}]
-        Action Input: the input to the action
-        Observation: the result of the action
-        ... (this Thought/Action/Action Input/Observation can repeat N times)
-        Thought: you should rethink about what to do next
-        Final Answer: the final action to the original input state
+        ### **Critical Rules:**  
 
-         important rules:
-         - You should always check the plan first to see if it is complete or not and if the question is answered or not
-         - if the plan is not complete  and "question_answered" is False you should present the next question
-         - if the plan is not complete and "question_answered" is False you should collect the response from the candidate
-         - if the plan is not complete and "question_answered" is False and the candidate did not understand the question you should refine the question
-         - If "question_answered" is True, you should stop and return the current state even if the plan is not complete
+        1. **Always start with `check_interview_plan`** to verify if the interview plan is complete.
 
+        2. **If the plan is complete, STOP IMMEDIATELY and return the current state.** you can know that the plan is complete if the status is 'Plan Complete' or plan field is empty.
+
+        3. **If the plan is incomplete AND** `question_answered=False` **AND** `question_refined=False`:  
+        - Use `present_question` to ask the next question.  
+        - Use `collect_response` to process the candidate's answer.  
+        - If the candidate requests clarification (`refine=True`), refine the question and restart the process (present the question again and collect the response).  
+
+        4. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
+
+        5. **Never modify the state directly.** Use the tools provided to manage state changes.  
+
+        6. **Only use the tools provided.** Do not invent new actions or state variables.  
          
+        7. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
+        
+        8. **Never add questions to the plan manually.**
 
-        Begin!"""),
+        """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
     ])
@@ -163,7 +174,9 @@ def create_interview_agent(llm):
         agent=agent,
         tools=tools,
         verbose=True,
-        return_intermediate_steps=True)
+        return_intermediate_steps=True,
+        handle_parsing_errors=True,
+        )
 
 agent = create_interview_agent(llm)
 def start_interview_agent(state: State):
@@ -188,7 +201,7 @@ def start_interview_agent(state: State):
         # Update the original state with all changes
         if hasattr(state, 'update'):
             state.update(working_state)
-            
+
         return working_state
         
     except Exception as e:
@@ -209,4 +222,4 @@ if __name__ == "__main__":
         'question_answered': False
     }
     start_interview_agent(test_state)
-    # print(test_state)
+    print(test_state)
