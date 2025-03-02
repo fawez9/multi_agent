@@ -31,7 +31,7 @@ class StateParam(BaseModel):
     
 
 @tool(args_schema=StateParam)
-def evaluate_technical_response(state: dict) -> dict:
+def evaluate_response(state: dict) -> dict:
     """Evaluates the candidate's response with a concise score and short feedback."""
     try:
          # Ensure state is a dictionary
@@ -54,7 +54,7 @@ def evaluate_technical_response(state: dict) -> dict:
             'evaluated': True
         }
     except Exception as e:
-        print(f"Error in evaluate_technical_response: {str(e)}")
+        print(f"Error in evaluate_response: {str(e)}")
         traceback.print_exc()
         return {'technical_score': "Evaluation failed"}
 
@@ -75,6 +75,7 @@ def calculate_score(state: dict) -> dict:
                 'scores': [*state['scores'], new_score],
                 'current_question': '',
                 'response': '',
+                'technical_score': '',
             }
         return state
     except Exception as e:
@@ -84,7 +85,7 @@ def calculate_score(state: dict) -> dict:
 
 
 def create_evaluation_agent():
-    tools = [evaluate_technical_response, calculate_score]
+    tools = [evaluate_response, calculate_score]
     
     # Fixed: Use proper syntax for ChatPromptTemplate
     prompt = ChatPromptTemplate.from_messages([
@@ -105,24 +106,22 @@ def create_evaluation_agent():
 
         ### **Important Rules:**  
 
-        1. **Never modify the status manually.** Use the available tools to ensure the state is updated correctly.  
+        1. **Never modify the status.** this is for the interview completion not for the evaluation. 
 
-        2. **Always determine which tool to execute based on the state.** If an action is required, select the appropriate tool and execute it.  
+        2. **Always determine which tool to execute based on the state.** If an action is required, select the appropriate tool and execute it.    
 
-        3. **Ensure that the state is updated as needed.** If a tool does not fully update the state, take additional steps to correct it before proceeding.  
+        3. **Use only the provided tools.** Do not invent new actions or modify the state outside of tool operations.  
 
-        4. **Use only the provided tools.** Do not invent new actions or modify the state outside of tool operations.  
+        4. **Once the evaluation reaches a conclusion, stop immediately and return the final state.**
 
-        5. **Once the evaluation reaches a conclusion, stop immediately and return the final state.**
-
-        6. **Make sure to give the  tools the whole state , to ensure that the state is fully updated.**.
+        5. **Make sure to give the  tools the whole state , to ensure that the state is fully updated correctly.**.
 
         """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
     ])
     
-    # Fixed: Correct order of arguments and use keyword arguments
+
     agent = create_react_agent(llm=llm, prompt=prompt, tools=tools)
     return AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True)
 

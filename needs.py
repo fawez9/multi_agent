@@ -32,7 +32,7 @@ def disconnect(connection):
 class State(TypedDict):
     messages: List[str]
     applied_role: str
-    technical_skills: List[str]
+    skills: List[str]
     name: str
     plan: List[str]
     scores: Annotated[List[Dict[str, str]], "List of scores"]

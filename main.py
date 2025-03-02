@@ -98,7 +98,7 @@ def generate_report(state: State):
 ----------------Interview Report for {state['name']}------------------
 Position: {state['applied_role']}
 Skills: {state['skills']}\n
------------------Technical Interview Scores----------------------------
+-----------------Interview Scores----------------------------
 """
     ]
     if state['plan'] == ['API Error: Failed to generate questions']:

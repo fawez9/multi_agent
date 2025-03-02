@@ -146,20 +146,24 @@ def create_interview_agent(llm):
 
         ### **Critical Rules:**  
 
-        1. **Always start with `check_interview_plan`** to verify if the interview plan is complete.  
+        1. **Always start with `check_interview_plan`** to verify if the interview plan is complete.
 
-        2. **If the plan is incomplete AND** `question_answered=False` **AND** `question_refined=False`:  
+        2. **If the plan is complete, STOP IMMEDIATELY and return the current state.** you can know that the plan is complete if the status is 'Plan Complete' or plan field is empty.
+
+        3. **If the plan is incomplete AND** `question_answered=False` **AND** `question_refined=False`:  
         - Use `present_question` to ask the next question.  
         - Use `collect_response` to process the candidate's answer.  
         - If the candidate requests clarification (`refine=True`), refine the question and restart the process (present the question again and collect the response).  
 
-        3. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
+        4. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
 
-        4. **Never modify the state directly.** Use the tools provided to manage state changes.  
+        5. **Never modify the state directly.** Use the tools provided to manage state changes.  
 
-        5. **Only use the tools provided.** Do not invent new actions or state variables.  
+        6. **Only use the tools provided.** Do not invent new actions or state variables.  
          
-        6. **Make sure to give the  tools the whole state , to ensure that the state is fully updated.**.
+        7. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
+        
+        8. **Never add questions to the plan manually.**
 
         """),
         ("human", "State: {input}"),
