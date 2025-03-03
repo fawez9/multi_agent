@@ -115,6 +115,8 @@ def create_evaluation_agent():
         4. **Once the evaluation reaches a conclusion, stop immediately and return the final state.**
 
         5. **Make sure to give the  tools the whole state , to ensure that the state is fully updated correctly.**.
+         
+        6. **Make sure that the score of a question is added only once to the scores field.** To avoid duplicates.
 
         """),
         ("human", "State: {input}"),
