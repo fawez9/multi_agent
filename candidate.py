@@ -10,6 +10,8 @@ prompt = f"""provide infos in json without writing (```json) i want the direct j
         "name": "username",
         "applied_role": "role",
         "skills": ["skill1", "skill2", "..."]
+        "phone": "phone_number",
+        "email": "email"
         }}"""
 
 json_response = rag.generate_response(query=prompt)
@@ -22,8 +24,12 @@ data = json.loads(json_response)
 name = data.get("name")
 applied_role = data.get("applied_role")
 skills = data.get("skills")
+phone = data.get("phone")
+email = data.get("email")
 
 
 print(f"Name: {name}")
 print(f"Applied Role: {applied_role}")
 print(f"Skills: {skills}")
+print(f"Phone: {phone}")
+print(f"Email: {email}")
