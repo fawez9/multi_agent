@@ -5,28 +5,8 @@ import google.generativeai as genai
 from typing_extensions import TypedDict
 from typing import Annotated,List, Dict
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-import psycopg2
+from psycopg2 import pool
 from config import config
-
-# Connect to PostgreSQL database
-def connect():
-    try:
-        # Connect to the PostgreSQL database
-        connection = None
-        params = config()
-        print('Connecting to the PostgreSQL database...')
-        connection = psycopg2.connect(**params)
-
-        return connection
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
-
-
-# Disconnect from the PostgreSQL database
-def disconnect(connection):
-    if connection is not None:
-        connection.close()
-        print('Database connection closed.')
 
 # State definition
 class State(TypedDict):
@@ -41,6 +21,20 @@ class State(TypedDict):
     response: str
     technical_score: Annotated[str, "Technical score"] # Annotated is used to add metadata to the type
     report: str
+    email: str
+    phone: str
+
+
+db_config = config()
+# Connect to PostgreSQL database
+print("Connecting to the PostgreSQL database...")
+connection_pool = pool.SimpleConnectionPool(**db_config)
+
+
+# Close the connection pool when the application shuts down
+def close_connection_pool():
+    connection_pool.closeall()
+    print("Connection pool closed.")
 
 
 # Configure Google GenAI
@@ -54,9 +48,5 @@ embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
 
 if __name__ == "__main__":
-    connection = connect()
-    cursor = connection.cursor()
-    cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';")
-    db_query = cursor.fetchall()
-    print(db_query)
-    disconnect(connection)
+    # Initialize the RAG system
+    rag ="hello"

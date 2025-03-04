@@ -1,6 +1,6 @@
 import time
 import candidate
-from needs import State
+from needs import State, connection_pool ,close_connection_pool
 from core_rag import rag
 from langgraph.graph import StateGraph 
 from interview_agent import start_interview_agent
@@ -26,6 +26,8 @@ def initialize_candidate_info(state: State):
         'applied_role': candidate.applied_role,
         'skills': candidate.skills,
         'name': candidate.name,
+        'email': candidate.email,
+        'phone': candidate.phone
     }
 
 def generate_interview_plan(state: State):
@@ -36,7 +38,7 @@ def generate_interview_plan(state: State):
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 2 interview questions for the role of {role} make them as short as possible.
+        Based on the job offer and candidate profile, generate 1 interview question for the role of {role} make them as short as possible.
         Focus on the following skills: {skills}.
         Format each question as a numbered item:
         """
@@ -54,65 +56,99 @@ def generate_interview_plan(state: State):
     
     return {'plan': questions}
 
-def evaluate_technical_response(state: State):
-    """Evaluates the candidate's response to the current question."""
-    try:
-        if not state.get('current_question') or not state.get('response'):
-            return {'technical_score': "Cannot evaluate: missing question or response"}
 
-        prompt = f"""
-        Evaluate this technical response based on the job offer and candidate profile make the answer as short as possible.
-        Question: {state['current_question']}
-        Response: {state['response']}
-        Provide a score out of 10.
-        """
-        evaluation = rag.generate_response(query=prompt)
-        time.sleep(2)
-
-        # Clear the current_question and response after evaluation
-        return {
-            'technical_score': evaluation,
-            'current_question': state['current_question'],  
-            'response': state['response']  
-        }
-    except Exception as e:
-        return {'technical_score': f"Evaluation failed: {str(e)}"}
-
-def calculate_score(state: State):
-    """Calculates and stores the candidate's score for the current question."""
-    new_score = {
-        'question': state['current_question'],
-        'response': state['response'],
-        'evaluation': state['technical_score']
-    }
-    return {
-        'scores': [*state['scores'], new_score],
-        'current_question': '',  # Clear the question
-        'response': ''  # Clear the response
-    }
-
-def generate_report(state: State):
+def generate_report(state: dict):
     """Generates the final interview report."""
+    # Generate the report text
     report = [
         f"""
 ----------------Interview Report for {state['name']}------------------
 Position: {state['applied_role']}
 Skills: {state['skills']}\n
------------------Interview Scores----------------------------
+-----------------------Interview Scores-------------------------------
 """
     ]
+
+    # Check for API error
     if state['plan'] == ['API Error: Failed to generate questions']:
-        report.append("Technical interview questions could not be generated due to an API error.\n")
+        print("API Error: Failed to generate questions")
+        return {'report': "API Error: Failed to generate questions", 'state': state}
     else:
-        for i, score in enumerate(state['scores'], 1):
+        for i, score in enumerate(state.get('scores', []), 1):
             report.append(f"{i}. Question: {score['question']}")
             report.append(f"   Answer: {score['response']}")
             report.append(f"   Evaluation: {score['evaluation']}\n")
     
-    return {'report': '\n'.join(report)}
+    report_text = '\n'.join(report)
+    return {'report': report_text, 'state': state}
+
+
+def store_db(state: dict):
+    """Stores the report data in the database if there is no API error."""
+
+    # Check for API error
+    if state.get('plan') == ['API Error: Failed to generate questions']:
+        print("API error occurred. Report not stored in the database.")
+        return
+
+    # Take the connection from the pool
+    conn = connection_pool.getconn()
+    cursor = conn.cursor()
+
+    try:
+        # Insert candidate information
+        cursor.execute("""
+            INSERT INTO candidates (name, email, phone, role, skills)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (
+            state.get('name'),
+            state.get('email'),  # Safely access 'email'
+            state.get('phone'),
+            state.get('applied_role'),
+            state.get('skills')
+        ))
+        candidate_id = cursor.fetchone()[0]
+
+        # Insert report metadata
+        cursor.execute("""
+            INSERT INTO reports (candidate_id)
+            VALUES (%s)
+            RETURNING id;
+        """, (candidate_id,))
+        report_id = cursor.fetchone()[0]
+
+        # Insert interview scores
+        for score in state.get('scores', []):
+            cursor.execute("""
+                INSERT INTO interview_scores (report_id, question, response, evaluation)
+                VALUES (%s, %s, %s, %s);
+            """, (
+                report_id,
+                score.get('question'),
+                score.get('response'),
+                score.get('evaluation')
+            ))
+
+        # Commit the transaction
+        conn.commit()
+        print("Report stored successfully in the database.")
+        return
+
+    except Exception as e:
+        # Rollback in case of error
+        conn.rollback()
+        print(f"Error storing report in the database: {e}")
+
+    finally:
+        # Close the connection
+        if conn:
+            cursor.close()
+            connection_pool.putconn(conn)
 
 def end_interview(state: State):
     """Ends the interview and displays the final report."""
+    close_connection_pool()
     print("\n" + state['report'])
     print("\nInterview completed. Thank you!")
 
@@ -127,6 +163,7 @@ nodes = [
     ("interview_agent", start_interview_agent),
     ("evaluation_agent",start_evaluation_agent),
     ("gen_report", generate_report),
+    ("store_db", store_db),
     ("end", end_interview)
 ]
 
@@ -150,7 +187,8 @@ workflow.add_conditional_edges(
     }
 )
 workflow.add_edge("evaluation_agent", "interview_agent")
-workflow.add_edge("gen_report", "end")
+workflow.add_edge("gen_report", "store_db")
+workflow.add_edge("store_db", "end")
 workflow.set_finish_point("end")
 
 
