@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field, field_validator
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.memory import ConversationBufferMemory
 
 class StateParam(BaseModel):
     state: dict = Field(..., description="The current interview state")
