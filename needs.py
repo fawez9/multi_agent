@@ -23,6 +23,7 @@ class State(TypedDict):
     report: str
     email: str
     phone: str
+    conversation_history: List[Dict[str, str]]
 
 
 db_config = config()

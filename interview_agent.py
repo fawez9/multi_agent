@@ -47,16 +47,30 @@ def present_question(state: dict) -> dict:
         # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
+        conversation_history = state.get('conversation_history', [])
         plan = state.get("plan", [])
         current_question = plan[0]
+        
+        # Track the question presentation
+        question_event = {
+            'event_type': 'question_presented',
+            'question': current_question,
+            'is_refined': state.get('question_refined', False),
+            'timestamp': time.time()
+        }
+        conversation_history.append(question_event)
+        
         print(f"\nQ: {current_question}")
         if not state.get('question_refined'):
             return {
                 'current_question': current_question,
-                'question_refined': False  # Reset the refined flag for the new question
+                'question_refined': False,  # Reset the refined flag for the new question
+                'conversation_history': conversation_history
             }
         return {
             'current_question': current_question,
+            'conversation_history': conversation_history
         }
     except Exception as e:
         print(f"Error in present_question: {str(e)}")
@@ -72,6 +86,17 @@ def collect_response(state: dict) -> dict:
         if state.get("current_question"):
             response = input("\nYour answer: ")
             
+            # Track conversation history
+            conversation_event = {
+                'event_type': 'candidate_response',
+                'question': state.get('current_question', ''),
+                'response': response,
+                'timestamp': time.time()
+            }
+            
+            conversation_history = state.get('conversation_history', [])
+            conversation_history.append(conversation_event)
+            
             if not state.get('question_refined'):
                 # Create proper message format for LLM
                 messages = [
@@ -81,14 +106,29 @@ def collect_response(state: dict) -> dict:
                 
                 check = llm.invoke(messages)
                 time.sleep(2)
+                
+                # Track the understanding check
+                understanding_event = {
+                    'event_type': 'understanding_check',
+                    'question': state.get('current_question', ''),
+                    'result': check.content.lower().strip(),
+                    'timestamp': time.time()
+                }
+                conversation_history.append(understanding_event)
+                
                 if check.content.lower().strip() == 'no':
-                    return {'refine': True}
+                    return {
+                        'refine': True,
+                        'conversation_history': conversation_history
+                    }
+            
             plan = state.get("plan", [])
             plan.pop(0)
             return {
                 'response': response,
                 'plan': plan,
-                'question_answered':True
+                'question_answered': True,
+                'conversation_history': conversation_history
             }
         return {'response': ''}
     except Exception as e:
@@ -99,10 +139,21 @@ def collect_response(state: dict) -> dict:
 def refine_question(state: dict) -> dict:
     """Refines the candidate's response to the current question."""
     try:
-                 # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
+        conversation_history = state.get('conversation_history', [])
+        
         if state.get("refine"):
+            # Track the refinement attempt
+            refinement_event = {
+                'event_type': 'question_refinement_started',
+                'original_question': state.get('current_question', ''),
+                'timestamp': time.time()
+            }
+            conversation_history.append(refinement_event)
+            
             # Create proper message format for LLM
             messages = [
                 SystemMessage(content="Please refine the following question to make it clearer while keeping it concise and short as possible."),
@@ -111,14 +162,28 @@ def refine_question(state: dict) -> dict:
             
             refined = llm.invoke(messages)
             time.sleep(2)
+            
+            # Track the refined question
+            refinement_completed_event = {
+                'event_type': 'question_refinement_completed',
+                'original_question': state.get('current_question', ''),
+                'refined_question': refined.content,
+                'timestamp': time.time()
+            }
+            conversation_history.append(refinement_completed_event)
+            
             plan = state.get("plan", [])
             plan[0] = refined.content
             return {
                 'plan': plan,
                 'refine': False,
-                'question_refined': True  # Mark the question as refined
+                'question_refined': True,
+                'conversation_history': conversation_history
             }
-        return {'current_question': state.get('current_question', '')}
+        return {
+            'current_question': state.get('current_question', ''),
+            'conversation_history': conversation_history
+        }
     except Exception as e:
         print(f"Error in refine_response: {str(e)}")
         return {'status': 'Error'}
@@ -163,6 +228,8 @@ def create_interview_agent(llm):
         7. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
         
         8. **Never add questions to the plan manually.**
+         
+         ---->DONT CARE ABOUT THE CONVERSATION HISTORY <----
 
         """),
         ("human", "State: {input}"),

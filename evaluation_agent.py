@@ -33,9 +33,21 @@ class StateParam(BaseModel):
 def evaluate_response(state: dict) -> dict:
     """Evaluates the candidate's response with a concise score and short feedback."""
     try:
-         # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
+        conversation_history = state.get('conversation_history', [])
+        
+        # Track evaluation start
+        evaluation_start_event = {
+            'event_type': 'evaluation_started',
+            'question': state.get('current_question', ''),
+            'response': state.get('response', ''),
+            'timestamp': time.time()
+        }
+        conversation_history.append(evaluation_start_event)
+        
         prompt = f"""
         Evaluate this response concisely:
         Question: {state.get('current_question')}
@@ -46,11 +58,24 @@ def evaluate_response(state: dict) -> dict:
         evaluation = rag.generate_response(query=prompt)
         time.sleep(2)
         
+        evaluation_result = evaluation.content.strip() if isinstance(evaluation, AIMessage) else str(evaluation).strip()
+        
+        # Track evaluation completion
+        evaluation_complete_event = {
+            'event_type': 'evaluation_completed',
+            'question': state.get('current_question', ''),
+            'response': state.get('response', ''),
+            'evaluation': evaluation_result,
+            'timestamp': time.time()
+        }
+        conversation_history.append(evaluation_complete_event)
+        
         return {
-            'technical_score': evaluation.content.strip() if isinstance(evaluation, AIMessage) else str(evaluation).strip(),
+            'technical_score': evaluation_result,
             'current_question': state.get('current_question', ''),
             'response': state.get('response', ''),
-            'evaluated': True
+            'evaluated': True,
+            'conversation_history': conversation_history
         }
     except Exception as e:
         print(f"Error in evaluate_response: {str(e)}")
@@ -116,6 +141,8 @@ def create_evaluation_agent():
         5. **Make sure to give the  tools the whole state , to ensure that the state is fully updated correctly.**.
          
         6. **Make sure that the score of a question is added only once to the scores field.** To avoid duplicates.
+         
+         ---->DONT CARE ABOUT THE CONVERSATION HISTORY AND THE EVALUATION OF THE CANDIDATE<----
 
         """),
         ("human", "State: {input}"),
