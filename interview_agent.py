@@ -54,10 +54,9 @@ def present_question(state: dict) -> dict:
         
         # Track the question presentation
         question_event = {
-            'event_type': 'question_presented',
+            'event_type': 'present_question',
             'question': current_question,
             'is_refined': state.get('question_refined', False),
-            'timestamp': time.time()
         }
         conversation_history.append(question_event)
         
@@ -88,10 +87,8 @@ def collect_response(state: dict) -> dict:
             
             # Track conversation history
             conversation_event = {
-                'event_type': 'candidate_response',
-                'question': state.get('current_question', ''),
-                'response': response,
-                'timestamp': time.time()
+                'event_type': 'collect_response',
+                'response': response
             }
             
             conversation_history = state.get('conversation_history', [])
@@ -107,14 +104,6 @@ def collect_response(state: dict) -> dict:
                 check = llm.invoke(messages)
                 time.sleep(2)
                 
-                # Track the understanding check
-                understanding_event = {
-                    'event_type': 'understanding_check',
-                    'question': state.get('current_question', ''),
-                    'result': check.content.lower().strip(),
-                    'timestamp': time.time()
-                }
-                conversation_history.append(understanding_event)
                 
                 if check.content.lower().strip() == 'no':
                     return {
@@ -148,11 +137,9 @@ def refine_question(state: dict) -> dict:
         if state.get("refine"):
             # Track the refinement attempt
             refinement_event = {
-                'event_type': 'question_refinement_started',
-                'original_question': state.get('current_question', ''),
-                'timestamp': time.time()
+                'event_type': 'refine_question',
+                'original_question': state.get('current_question', '')
             }
-            conversation_history.append(refinement_event)
             
             # Create proper message format for LLM
             messages = [
@@ -163,14 +150,8 @@ def refine_question(state: dict) -> dict:
             refined = llm.invoke(messages)
             time.sleep(2)
             
-            # Track the refined question
-            refinement_completed_event = {
-                'event_type': 'question_refinement_completed',
-                'original_question': state.get('current_question', ''),
-                'refined_question': refined.content,
-                'timestamp': time.time()
-            }
-            conversation_history.append(refinement_completed_event)
+            refinement_event['refined_question'] = refined.content
+            conversation_history.append(refinement_event)
             
             plan = state.get("plan", [])
             plan[0] = refined.content
@@ -209,27 +190,21 @@ def create_interview_agent(llm):
         Final Answer: (final action when the interview process reaches completion)  
 
         ### **Critical Rules:**  
-
-        1. **Always start with `check_interview_plan`** to verify if the interview plan is complete.
-
-        2. **If the plan is complete, STOP IMMEDIATELY and return the current state.** you can know that the plan is complete if the status is 'Plan Complete' or plan field is empty.
-
-        3. **If the plan is incomplete AND** `question_answered=False` **AND** `question_refined=False`:  
-        - Use `present_question` to ask the next question.  
-        - Use `collect_response` to process the candidate's answer.  
-        - If the candidate requests clarification (`refine=True`), refine the question and restart the process (present the question again and collect the response).  
-
-        4. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
-
-        5. **Never modify the state directly.** Use the tools provided to manage state changes.  
-
-        6. **Only use the tools provided.** Do not invent new actions or state variables.  
+        I. **Each tool will use some fields from the state so whenever using a tool you're going to focus the most on them specifically and dont care about other fields.**
+        II. **Always start by using `check_interview_plan` tool** Check the status of the interview plan to decide termination conditions (critical field: plan and status ).
+        III. **If the plan is complete, STOP IMMEDIATELY and return the current state.** you can know that the plan is complete if the status is 'Plan Complete' or plan field is empty.
          
-        7. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
+        ### **Rules:**
+
+        3. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
+
+        4. **Never modify the state directly.** Tools will update the state automatically.  
+
+        5. **Only use the tools provided.** Do not invent new actions or state variables.  
+         
+        6. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
         
-        8. **Never add questions to the plan manually.**
-         
-         ---->DONT CARE ABOUT THE CONVERSATION HISTORY <----
+        7. **Never add questions to the plan manually.**
 
         """),
         ("human", "State: {input}"),
