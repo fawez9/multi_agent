@@ -1,12 +1,12 @@
 # Load environment variables
 import os
+from psycopg2 import pool
+from config import config
 from dotenv import load_dotenv
 import google.generativeai as genai
 from typing_extensions import TypedDict
 from typing import Annotated,List, Dict
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from psycopg2 import pool
-from config import config
 
 # State definition
 class State(TypedDict):
@@ -23,6 +23,7 @@ class State(TypedDict):
     report: str
     email: str
     phone: str
+    conversation_history: Annotated[List[Dict[str, str]], "List of conversation history"]
 
 
 db_config = config()

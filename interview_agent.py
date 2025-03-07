@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field, field_validator
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.memory import ConversationBufferMemory
 
 class StateParam(BaseModel):
     state: dict = Field(..., description="The current interview state")
@@ -48,16 +47,29 @@ def present_question(state: dict) -> dict:
         # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
+        conversation_history = state.get('conversation_history', [])
         plan = state.get("plan", [])
         current_question = plan[0]
+        
+        # Track the question presentation
+        question_event = {
+            'event_type': 'present_question',
+            'question': current_question,
+            'is_refined': state.get('question_refined', False),
+        }
+        conversation_history.append(question_event)
+        
         print(f"\nQ: {current_question}")
         if not state.get('question_refined'):
             return {
                 'current_question': current_question,
-                'question_refined': False  # Reset the refined flag for the new question
+                'question_refined': False,  # Reset the refined flag for the new question
+                'conversation_history': conversation_history
             }
         return {
             'current_question': current_question,
+            'conversation_history': conversation_history
         }
     except Exception as e:
         print(f"Error in present_question: {str(e)}")
@@ -73,6 +85,15 @@ def collect_response(state: dict) -> dict:
         if state.get("current_question"):
             response = input("\nYour answer: ")
             
+            # Track conversation history
+            conversation_event = {
+                'event_type': 'collect_response',
+                'response': response
+            }
+            
+            conversation_history = state.get('conversation_history', [])
+            conversation_history.append(conversation_event)
+            
             if not state.get('question_refined'):
                 # Create proper message format for LLM
                 messages = [
@@ -82,14 +103,21 @@ def collect_response(state: dict) -> dict:
                 
                 check = llm.invoke(messages)
                 time.sleep(2)
+                
+                
                 if check.content.lower().strip() == 'no':
-                    return {'refine': True}
+                    return {
+                        'refine': True,
+                        'conversation_history': conversation_history
+                    }
+            
             plan = state.get("plan", [])
             plan.pop(0)
             return {
                 'response': response,
                 'plan': plan,
-                'question_answered':True
+                'question_answered': True,
+                'conversation_history': conversation_history
             }
         return {'response': ''}
     except Exception as e:
@@ -100,10 +128,19 @@ def collect_response(state: dict) -> dict:
 def refine_question(state: dict) -> dict:
     """Refines the candidate's response to the current question."""
     try:
-                 # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
+        conversation_history = state.get('conversation_history', [])
+        
         if state.get("refine"):
+            # Track the refinement attempt
+            refinement_event = {
+                'event_type': 'refine_question',
+                'original_question': state.get('current_question', '')
+            }
+            
             # Create proper message format for LLM
             messages = [
                 SystemMessage(content="Please refine the following question to make it clearer while keeping it concise and short as possible."),
@@ -112,14 +149,22 @@ def refine_question(state: dict) -> dict:
             
             refined = llm.invoke(messages)
             time.sleep(2)
+            
+            refinement_event['refined_question'] = refined.content
+            conversation_history.append(refinement_event)
+            
             plan = state.get("plan", [])
             plan[0] = refined.content
             return {
                 'plan': plan,
                 'refine': False,
-                'question_refined': True  # Mark the question as refined
+                'question_refined': True,
+                'conversation_history': conversation_history
             }
-        return {'current_question': state.get('current_question', '')}
+        return {
+            'current_question': state.get('current_question', ''),
+            'conversation_history': conversation_history
+        }
     except Exception as e:
         print(f"Error in refine_response: {str(e)}")
         return {'status': 'Error'}
@@ -145,25 +190,21 @@ def create_interview_agent(llm):
         Final Answer: (final action when the interview process reaches completion)  
 
         ### **Critical Rules:**  
-
-        1. **Always start with `check_interview_plan`** to verify if the interview plan is complete.
-
-        2. **If the plan is complete, STOP IMMEDIATELY and return the current state.** you can know that the plan is complete if the status is 'Plan Complete' or plan field is empty.
-
-        3. **If the plan is incomplete AND** `question_answered=False` **AND** `question_refined=False`:  
-        - Use `present_question` to ask the next question.  
-        - Use `collect_response` to process the candidate's answer.  
-        - If the candidate requests clarification (`refine=True`), refine the question and restart the process (present the question again and collect the response).  
-
-        4. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
-
-        5. **Never modify the state directly.** Use the tools provided to manage state changes.  
-
-        6. **Only use the tools provided.** Do not invent new actions or state variables.  
+        I. **Each tool will use some fields from the state so whenever using a tool you're going to focus the most on them specifically and dont care about other fields.**
+        II. **Always start by using `check_interview_plan` tool** Check the status of the interview plan to decide termination conditions (critical field: plan and status ).
+        III. **If the plan is complete, STOP IMMEDIATELY and return the current state.** you can know that the plan is complete if the status is 'Plan Complete' or plan field is empty.
          
-        7. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
+        ### **Rules:**
+
+        3. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
+
+        4. **Never modify the state directly.** Tools will update the state automatically.  
+
+        5. **Only use the tools provided.** Do not invent new actions or state variables.  
+         
+        6. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
         
-        8. **Never add questions to the plan manually.**
+        7. **Never add questions to the plan manually.**
 
         """),
         ("human", "State: {input}"),

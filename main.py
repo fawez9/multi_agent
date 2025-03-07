@@ -1,10 +1,11 @@
 import time
+import traceback
 import candidate
-from needs import State, connection_pool ,close_connection_pool
 from core_rag import rag
 from langgraph.graph import StateGraph 
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
+from needs import State, connection_pool ,close_connection_pool
 
 
 def start_interview(state: State):
@@ -17,7 +18,8 @@ def start_interview(state: State):
         'report': '',
         'scores': [],
         'plan': [],
-        'status': 'Plan Incomplete'
+        'status': 'Plan Incomplete',
+        'conversation_history': []
     }
 
 def initialize_candidate_info(state: State):
@@ -84,7 +86,7 @@ Skills: {state['skills']}\n
 
 
 def store_db(state: dict):
-    """Stores the report data in the database if there is no API error."""
+    """Stores the report data and conversation history in the database."""
 
     # Check for API error
     if state.get('plan') == ['API Error: Failed to generate questions']:
@@ -103,7 +105,7 @@ def store_db(state: dict):
             RETURNING id;
         """, (
             state.get('name'),
-            state.get('email'),  # Safely access 'email'
+            state.get('email'),
             state.get('phone'),
             state.get('applied_role'),
             state.get('skills')
@@ -130,15 +132,32 @@ def store_db(state: dict):
                 score.get('evaluation')
             ))
 
+        # Insert conversation history events
+        for event in state.get('conversation_history', []):
+            # Convert the event to a JSON-compatible format
+            import json
+            event_data = json.dumps(event)
+            
+            cursor.execute("""
+                INSERT INTO conversation_events (report_id, event_type, event_data, timestamp)
+                VALUES (%s, %s, %s, to_timestamp(%s));
+            """, (
+                report_id,
+                event.get('event_type'),
+                event_data,
+                event.get('timestamp', time.time())
+            ))
+
         # Commit the transaction
         conn.commit()
-        print("Report stored successfully in the database.")
+        print("Report and full conversation history stored successfully in the database.")
         return
 
     except Exception as e:
         # Rollback in case of error
         conn.rollback()
         print(f"Error storing report in the database: {e}")
+        traceback.print_exc()
 
     finally:
         # Close the connection

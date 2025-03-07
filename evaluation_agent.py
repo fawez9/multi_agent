@@ -1,15 +1,14 @@
+import ast
 import time
+import json
 import traceback
+from core_rag import rag
 from needs import llm, State
 from langchain_core.tools import tool
-from pydantic import BaseModel, Field, field_validator
-from typing import Any
-import ast
-import json
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import AIMessage
-from core_rag import rag
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field, field_validator
+from langchain.agents import AgentExecutor, create_react_agent
 
 
 class StateParam(BaseModel):
@@ -34,9 +33,13 @@ class StateParam(BaseModel):
 def evaluate_response(state: dict) -> dict:
     """Evaluates the candidate's response with a concise score and short feedback."""
     try:
-         # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
+        conversation_history = state.get('conversation_history', [])
+        
+        
         prompt = f"""
         Evaluate this response concisely:
         Question: {state.get('current_question')}
@@ -47,11 +50,20 @@ def evaluate_response(state: dict) -> dict:
         evaluation = rag.generate_response(query=prompt)
         time.sleep(2)
         
+        evaluation_result = evaluation.content.strip() if isinstance(evaluation, AIMessage) else str(evaluation).strip()
+        
+        evaluation_event = {
+            'event_type': 'evaluate_response',
+            'evaluation': evaluation_result
+        }
+        conversation_history.append(evaluation_event)
+        
         return {
-            'technical_score': evaluation.content.strip() if isinstance(evaluation, AIMessage) else str(evaluation).strip(),
+            'technical_score': evaluation_result,
             'current_question': state.get('current_question', ''),
             'response': state.get('response', ''),
-            'evaluated': True
+            'evaluated': True,
+            'conversation_history': conversation_history
         }
     except Exception as e:
         print(f"Error in evaluate_response: {str(e)}")
@@ -65,19 +77,30 @@ def calculate_score(state: dict) -> dict:
          # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        conversation_history = state.get('conversation_history', [])
         if state.get('evaluated'):
             new_score = {
             'question': state.get('current_question', ''),
             'response': state.get('response', ''),
             'evaluation': state.get('technical_score', '')
         }
+            calculate_score_event = {
+            'event_type': 'calculate_score',
+            'score': new_score
+        }
+            conversation_history.append(calculate_score_event)
             return {
-                'scores': [*state['scores'], new_score],
+                'scores': [*state.get('scores', []), new_score],
                 'current_question': '',
                 'response': '',
                 'technical_score': '',
+                'conversation_history': conversation_history
             }
-        return state
+        conversation_history.append({
+            'event_type': 'calculate_score',
+            'error': 'Response not evaluated'
+        })
+        return {'conversation_history': conversation_history}
     except Exception as e:
         print(f"Error in calculate_score: {str(e)}")
         traceback.print_exc()
@@ -87,7 +110,6 @@ def calculate_score(state: dict) -> dict:
 def create_evaluation_agent():
     tools = [evaluate_response, calculate_score]
     
-    # Fixed: Use proper syntax for ChatPromptTemplate
     prompt = ChatPromptTemplate.from_messages([
         ("system", """
          You are an evaluator of an interview. You have the following tools:  
@@ -98,25 +120,26 @@ def create_evaluation_agent():
         State: (current state as a Python dictionary)  
         Thought: Analyze the state and decide what to do next  
         Action: The action to take, must be one of [{tool_names}]  
-        Action Input: The input to the action  
+        Action Input: {{(the complete state as a Python dictionary) }}
         Observation: The result of the action, which updates the state  
         Thought: Reevaluate based on the updated state and decide the next step  
         ... (repeat until termination)  
         Final Answer: The final decision based on the evaluated state  
 
         ### **Important Rules:**  
-
-        1. **Never modify the status.** this is for the interview completion not for the evaluation. 
-
-        2. **Always determine which tool to execute based on the state.** If an action is required, select the appropriate tool and execute it.    
-
-        3. **Use only the provided tools.** Do not invent new actions or modify the state outside of tool operations.  
-
-        4. **Once the evaluation reaches a conclusion, stop immediately and return the final state.**
-
-        5. **Make sure to give the  tools the whole state , to ensure that the state is fully updated correctly.**.
          
-        6. **Make sure that the score of a question is added only once to the scores field.** To avoid duplicates.
+        1. **Make sure to pass the whole state dictionary in the Action Input**. To avoid any data loss.
+
+        2. **Never modify the status.** This is for the interview completion not for the evaluation. 
+
+        3. **Always determine which tool to execute based on the state.** If an action is required, select the appropriate tool and execute it.    
+
+        4. **Use only the provided tools.** Do not invent new actions or modify the state outside of tool operations.  
+
+        5. **Make sure the scores are stored in the state.** The scores should be stored in the "scores" key of the state it is the most important field.
+         
+        6. **Once the evaluation reaches a conclusion, stop immediately and return the final state.**
+
 
         """),
         ("human", "State: {input}"),
@@ -133,7 +156,7 @@ def start_evaluation_agent(state: State):
     print("Starting concise evaluation")
     
     # Create a proper copy of the state
-    working_state = state.copy()
+    working_state = state.copy() if hasattr(state, 'copy') else state.copy() if isinstance(state, dict) else state
     
     try:   
         result = agent.invoke({
@@ -145,11 +168,17 @@ def start_evaluation_agent(state: State):
         # Update state with results
         for step in result["intermediate_steps"]:
             if isinstance(step[1], dict):
-                working_state.update(step[1])
-
+                if isinstance(working_state, dict):
+                    working_state.update(step[1])
+                else:
+                    # Handle case where working_state is a State object
+                    for key, value in step[1].items():
+                        setattr(working_state, key, value)
 
         # Update the original state with all changes
         if hasattr(state, 'update'):
+            state.update(working_state)
+        elif isinstance(state, dict) and isinstance(working_state, dict):
             state.update(working_state)
         
         return working_state
@@ -164,7 +193,8 @@ if __name__ == "__main__":
         'response': "I have 3 years of experience with Python.",
         'scores': [],
         'technical_score': '',
-        'evaluated': False
+        'evaluated': False,
+        'conversation_history': []
     }
-    test_state=start_evaluation_agent(test_state)
+    test_state = start_evaluation_agent(test_state)
     print("Final result:", test_state.get('scores', []))
