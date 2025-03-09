@@ -1,11 +1,13 @@
 import os
 import time
-from needs import llm, embeddings  
+from needs import llm, embeddings ,connection, collection_name
 from typing import Optional, List
 from langchain.schema import Document
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_postgres.vectorstores import PGVector
+
 
 class BaseRAG:
     """Base RAG class for multi-agent system"""
@@ -33,18 +35,29 @@ class BaseRAG:
         self.embeddings = embeddings
         self.vectorstore = self._initialize_vectorstore()
 
-    def _initialize_vectorstore(self) -> FAISS:
+    # TODO: FIX THE DATA LOADING FROM DB TO AVOID STORING THE SAME DATA
+    def _initialize_vectorstore(self) -> PGVector:
         """Initialize or load the vector store"""
-        index_path = f"./vectorstores/{self.collection_name}" if self.collection_name else "./vectorstores/default"
-        
-        if os.path.exists(f"{index_path}/index.faiss"):
-            print(f"Loading existing FAISS index from {index_path}...")
-            return FAISS.load_local(index_path, self.embeddings,allow_dangerous_deserialization=True)
-        else:
-            print("Creating new FAISS index...")
+        try:
+            # Try to load existing collection from PostgreSQL
+            print(f"Attempting to load existing collection '{collection_name}' from PostgreSQL...")
+            vectorstore = PGVector(
+                collection_name=self.collection_name or "default",
+                connection=connection,
+                embeddings=self.embeddings
+            )
+            # Check if collection has documents
+            if vectorstore.similarity_search("test query", k=1):
+                print(f"Successfully loaded existing collection with documents.")
+                return vectorstore
+            else:
+                print(f"Collection exists but appears to be empty. Creating new vectorstore...")
+                return self._create_new_vectorstore()
+        except Exception as e:
+            print(f"Error loading collection: {e}. Creating new vectorstore...")
             return self._create_new_vectorstore()
 
-    def _create_new_vectorstore(self) -> FAISS:
+    def _create_new_vectorstore(self):
         """Create a new FAISS vector store from documents"""
         if not os.path.exists(self.docs_path):
             raise FileNotFoundError(f"Documents directory not found: {self.docs_path}")
@@ -60,25 +73,18 @@ class BaseRAG:
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap
         )
-        splits = text_splitter.split_documents(documents)
+        texts = text_splitter.split_documents(documents)
         
-        # Create FAISS index
-        vectorstore = FAISS.from_documents(
-            documents=splits,
-            embedding=self.embeddings
+        vector_store = PGVector.from_documents(
+        embedding=embeddings,
+        collection_name=collection_name,
+        connection=connection,
+        documents=texts,
+        use_jsonb=True
         )
         
-        # Save the index
-        if self.collection_name:
-            self._save_vectorstore(vectorstore, self.collection_name)
-        
-        return vectorstore
+        return vector_store
 
-    def _save_vectorstore(self, vectorstore: FAISS, name: str) -> None:
-        """Save FAISS index and metadata"""
-        index_path = f"./vectorstores/{name}"
-        os.makedirs("./vectorstores", exist_ok=True)
-        vectorstore.save_local(index_path)
 
     def similarity_search(self, query: str, k: int = 3) -> List[Document]:
         """
@@ -130,9 +136,10 @@ class BaseRAG:
         
         return response.content
 
+    #TODO: RECHECK THE ADD_DOCUMENTS FUNCTION
     def add_documents(self, file_paths: List[str]) -> None:
         """
-        Add new documents to the existing vector store
+        Add new documents to the existing vector store if they don't already exist
         
         Args:
             file_paths: List of paths to new documents
@@ -153,26 +160,29 @@ class BaseRAG:
             
             with open(file_path, 'r') as f:
                 text = f.read()
+                
+            # Simple check: See if this document might already exist
+            # This is a basic implementation - you might want more sophisticated duplicate detection
+            sample_text = text[:100]  # Take first 100 chars as a signature
+            existing_docs = self.vectorstore.similarity_search(sample_text, k=1)
+            
+            if existing_docs and sample_text in existing_docs[0].page_content:
+                print(f"Document similar to {file_path} appears to already exist in the database.")
+                continue
+                
             splits = text_splitter.split_text(text)
             new_docs.extend([Document(page_content=text) for text in splits])
         
         if new_docs:
-            # Create temporary FAISS index for new documents
-            new_vectorstore = FAISS.from_documents(new_docs, self.embeddings)
-            
-            # Merge with existing index
-            self.vectorstore.merge_from(new_vectorstore)
-            
-            # Save updated index
-            if self.collection_name:
-                self._save_vectorstore(self.vectorstore, self.collection_name)
+            # Add new documents to the vector store
+            self.vectorstore.add_documents(new_docs)
+            print(f"Added {len(new_docs)} new document chunks to the database.")
         else:
             print("No new documents were added.")
 
 # Initialize the RAG system
-rag = BaseRAG(docs_path="./knowledge_base", collection_name="my_index")
+rag = BaseRAG(docs_path="./knowledge_base")
 
 # Example usage
 if __name__ == "__main__":
-    response = rag.generate_response("What is the candidate name?")
-    print(response)
+    rag.add_documents(file_paths=["./new_docs/doc1.txt"])

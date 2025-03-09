@@ -28,7 +28,7 @@ class State(TypedDict):
 
 db_config = config()
 # Connect to PostgreSQL database
-print("Connecting to the PostgreSQL database...")
+# print("Connecting to the PostgreSQL database...")
 connection_pool = pool.SimpleConnectionPool(**db_config)
 
 
@@ -43,9 +43,13 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Initialize LLM
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0) # TODO: Change model to "gemini-1.5" for better results (example: "gemini-2.0-flash")
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0) # TODO: Change for better model 
 # Initialize embeddings
 embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+
+connection = "postgresql+psycopg://postgres:123321@localhost:6024/interview_db"
+collection_name = "state_of_uninon_vectors"
+
 
 
 if __name__ == "__main__":
