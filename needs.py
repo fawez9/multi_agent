@@ -7,6 +7,7 @@ import google.generativeai as genai
 from typing_extensions import TypedDict
 from typing import Annotated,List, Dict
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # State definition
 class State(TypedDict):
@@ -46,6 +47,10 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0) # TODO: Change for better model 
 # Initialize embeddings
 embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200
+            )
 
 connection = "postgresql+psycopg://postgres:123321@localhost:6024/interview_db"
 collection_name = "state_of_uninon_vectors"
