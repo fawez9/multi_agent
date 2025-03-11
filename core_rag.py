@@ -74,6 +74,7 @@ class BaseRAG:
         context = self.get_relevant_context(query, k=k)
         prompt = f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
         response = llm.invoke(prompt)
+        time.sleep(2)
         return response.content
 
     def add_documents(self, file_paths: List[str]) -> None:

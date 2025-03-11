@@ -74,32 +74,43 @@ def evaluate_response(state: dict) -> dict:
 def calculate_score(state: dict) -> dict:
     """Calculates and stores the candidate's concise score."""
     try:
-         # Ensure state is a dictionary
+        # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
         conversation_history = state.get('conversation_history', [])
-        if state.get('evaluated'):
+        
+        # Check if the evaluated flag is True or if technical_score is not empty
+        if state.get('evaluated', False) or state.get('technical_score', ''):
             new_score = {
-            'question': state.get('current_question', ''),
-            'response': state.get('response', ''),
-            'evaluation': state.get('technical_score', '')
-        }
+                'question': state.get('current_question', ''),
+                'response': state.get('response', ''),
+                'evaluation': state.get('technical_score', '')
+            }
+            
             calculate_score_event = {
-            'event_type': 'calculate_score',
-            'score': new_score
-        }
+                'event_type': 'calculate_score',
+                'score': new_score
+            }
+            
             conversation_history.append(calculate_score_event)
+            
+            # Return updated state with new score added and fields reset
             return {
                 'scores': [*state.get('scores', []), new_score],
                 'current_question': '',
                 'response': '',
                 'technical_score': '',
+                'evaluated': False,  # Reset the evaluated flag
                 'conversation_history': conversation_history
             }
+        
+        # If not evaluated, add error to conversation history
         conversation_history.append({
             'event_type': 'calculate_score',
             'error': 'Response not evaluated'
         })
+        
         return {'conversation_history': conversation_history}
     except Exception as e:
         print(f"Error in calculate_score: {str(e)}")
@@ -165,15 +176,31 @@ def start_evaluation_agent(state: State):
         
         time.sleep(2)
         
-        # Update state with results
-        for step in result["intermediate_steps"]:
-            if isinstance(step[1], dict):
-                if isinstance(working_state, dict):
-                    working_state.update(step[1])
-                else:
-                    # Handle case where working_state is a State object
-                    for key, value in step[1].items():
-                        setattr(working_state, key, value)
+        # Extract the final state from the last observation if available
+        final_state = None
+        if result.get("intermediate_steps") and result["intermediate_steps"]:
+            final_step = result["intermediate_steps"][-1]
+            if isinstance(final_step[1], dict):
+                final_state = final_step[1]
+        
+        # If we have a valid final state, use it
+        if final_state and isinstance(final_state, dict):
+            if isinstance(working_state, dict):
+                working_state = final_state
+            else:
+                # Handle case where working_state is a State object
+                for key, value in final_state.items():
+                    setattr(working_state, key, value)
+        else:
+            # Otherwise update incrementally
+            for step in result["intermediate_steps"]:
+                if isinstance(step[1], dict):
+                    if isinstance(working_state, dict):
+                        working_state.update(step[1])
+                    else:
+                        # Handle case where working_state is a State object
+                        for key, value in step[1].items():
+                            setattr(working_state, key, value)
 
         # Update the original state with all changes
         if hasattr(state, 'update'):
