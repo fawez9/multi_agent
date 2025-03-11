@@ -9,3 +9,4 @@ vectorstores
 interview_db.ini
 config.py
 querries
+pgvector.py
