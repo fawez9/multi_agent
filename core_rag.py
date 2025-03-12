@@ -1,10 +1,10 @@
 import os
 import time
-from needs import llm, embeddings, connection, collection_name, text_splitter
-from typing import Optional, List, Union
 from langchain.schema import Document
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from typing import Optional, List, Union
 from langchain_postgres.vectorstores import PGVector
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from needs import llm, embeddings, connection, collection_name, text_splitter
 
 
 class BaseRAG:

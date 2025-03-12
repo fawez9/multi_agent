@@ -85,6 +85,7 @@ Skills: {state['skills']}\n
     return {'report': report_text, 'state': state}
 
 
+#TODO: Make this an agent that can insert , update and delete from the database
 def store_db(state: dict):
     """Stores the report data and conversation history in the database."""
 

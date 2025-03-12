@@ -2,14 +2,17 @@ import ast
 import json
 import time
 import traceback
-from needs import llm, State
-from langchain_core.tools import tool
 from pydantic import BaseModel, Field, field_validator
+
+from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from needs import llm, State
+
 class StateParam(BaseModel):
+    """Pydantic model for the state parameter."""
     state: dict = Field(..., description="The current interview state")
     @field_validator('state', mode='before')
     @classmethod
@@ -56,7 +59,7 @@ def present_question(state: dict) -> dict:
         question_event = {
             'event_type': 'present_question',
             'question': current_question,
-            'is_refined': state.get('question_refined', False),
+            'is_refined': state.get('question_refined'),
         }
         conversation_history.append(question_event)
         
@@ -134,7 +137,7 @@ def refine_question(state: dict) -> dict:
         
         conversation_history = state.get('conversation_history', [])
         
-        if state.get("refine"):
+        if state.get('refine'):
             # Track the refinement attempt
             refinement_event = {
                 'event_type': 'refine_question',
@@ -161,6 +164,7 @@ def refine_question(state: dict) -> dict:
                 'question_refined': True,
                 'conversation_history': conversation_history
             }
+        conversation_history.append({'event_type': 'no_refinement happened','refine': state.get('refine')})
         return {
             'current_question': state.get('current_question', ''),
             'conversation_history': conversation_history
@@ -205,6 +209,8 @@ def create_interview_agent(llm):
         6. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
         
         7. **Never add questions to the plan manually.**
+         
+        8. **After refining a question always present it to the candidate.**
 
         """),
         ("human", "State: {input}"),

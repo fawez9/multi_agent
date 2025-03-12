@@ -2,6 +2,7 @@ import json
 import time
 from core_rag import rag
 
+#TODO: fetch data from db
 with open('knowledge_base/doc2.txt', 'r') as f:
     text = f.read()
 
@@ -28,8 +29,9 @@ phone = data.get("phone")
 email = data.get("email")
 
 
-print(f"Name: {name}")
-print(f"Applied Role: {applied_role}")
-print(f"Skills: {skills}")
-print(f"Phone: {phone}")
-print(f"Email: {email}")
+if __name__ == "__main__":
+    print(f"Name: {name}")
+    print(f"Applied Role: {applied_role}")
+    print(f"Skills: {skills}")
+    print(f"Phone: {phone}")
+    print(f"Email: {email}")

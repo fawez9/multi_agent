@@ -4,13 +4,13 @@ from psycopg2 import pool
 from config import config
 from dotenv import load_dotenv
 import google.generativeai as genai
-from typing_extensions import TypedDict
 from typing import Annotated,List, Dict
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from typing_extensions import TypedDict
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
-# State definition
 class State(TypedDict):
+    """State of the interview"""
     messages: List[str]
     applied_role: str
     skills: List[str]
@@ -44,7 +44,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Initialize LLM
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0) # TODO: Change for better model 
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0) # TODO: Change for better model  #NOTE: gemini-2.0-flash is bugging
 # Initialize embeddings
 embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 text_splitter = RecursiveCharacterTextSplitter(
