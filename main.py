@@ -5,7 +5,7 @@ from core_rag import rag
 from langgraph.graph import StateGraph 
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
-from needs import State, connection_pool ,close_connection_pool
+from needs import State, connection_pool, close_connection_pool
 
 
 def start_interview(state: State):
@@ -19,7 +19,11 @@ def start_interview(state: State):
         'scores': [],
         'plan': [],
         'status': 'Plan Incomplete',
-        'conversation_history': []
+        'conversation_history': [],
+        # Add these critical flags that were missing
+        'needs_refinement': False,
+        'question_refined': False,
+        'question_answered': False
     }
 
 def initialize_candidate_info(state: State):
@@ -85,7 +89,6 @@ Skills: {state['skills']}\n
     return {'report': report_text, 'state': state}
 
 
-#TODO: Make this an agent that can insert , update and delete from the database
 def store_db(state: dict):
     """Stores the report data and conversation history in the database."""
 
@@ -181,7 +184,7 @@ nodes = [
     ("init", initialize_candidate_info),
     ("gen_plan", generate_interview_plan),
     ("interview_agent", start_interview_agent),
-    ("evaluation_agent",start_evaluation_agent),
+    ("evaluation_agent", start_evaluation_agent),
     ("gen_report", generate_report),
     ("store_db", store_db),
     ("end", end_interview)
@@ -196,21 +199,26 @@ workflow.add_edge("start", "init")
 workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
 
-# Add conditional edges based on the interview status
+# Add conditional edges based on the interview status and question_answered flag
 workflow.add_conditional_edges(
     "interview_agent",
-    lambda s: "evaluation_agent" if s['status'] == 'Plan Incomplete' else "gen_report" if s['status'] == 'Plan Complete' else "end",
+    lambda s: (
+        "evaluation_agent" if s.get('question_answered', False) 
+        else "interview_agent" if s.get('needs_refinement', False) 
+        else "gen_report" if s.get('status') == 'Plan Complete' 
+        else "interview_agent"
+    ),
     {
-        "evaluation_agent": "evaluation_agent" , # Otherwise, continue evaluation
-        "gen_report": "gen_report",  # When all questions are done, generate the report
-        "end": "end"  # End the interview
+        "evaluation_agent": "evaluation_agent",  # If question is answered, go to evaluation
+        "interview_agent": "interview_agent",    # If question needs refinement, loop back
+        "gen_report": "gen_report",             # If all questions done, generate report
     }
 )
+
 workflow.add_edge("evaluation_agent", "interview_agent")
 workflow.add_edge("gen_report", "store_db")
 workflow.add_edge("store_db", "end")
 workflow.set_finish_point("end")
-
 
 # Compile the workflow
 interview_flow = workflow.compile()

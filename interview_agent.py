@@ -28,6 +28,7 @@ class StateParam(BaseModel):
                 except json.JSONDecodeError:
                     pass
         raise ValueError(f"Input should be a valid dictionary")
+
 @tool(args_schema=StateParam)
 def check_interview_plan(state: dict) -> dict:
     """Checks the status of the interview plan."""
@@ -53,26 +54,27 @@ def present_question(state: dict) -> dict:
         
         conversation_history = state.get('conversation_history', [])
         plan = state.get("plan", [])
+        
+        if not plan:
+            return {'status': 'Plan Complete', 'conversation_history': conversation_history}
+            
         current_question = plan[0]
         
         # Track the question presentation
         question_event = {
             'event_type': 'present_question',
             'question': current_question,
-            'is_refined': state.get('question_refined'),
+            'is_refined': state.get('question_refined', False),
         }
         conversation_history.append(question_event)
         
         print(f"\nQ: {current_question}")
-        if not state.get('question_refined'):
-            return {
-                'current_question': current_question,
-                'question_refined': False,  # Reset the refined flag for the new question
-                'conversation_history': conversation_history
-            }
+        
         return {
             'current_question': current_question,
-            'conversation_history': conversation_history
+            'question_refined': state.get('question_refined', False),
+            'conversation_history': conversation_history,
+            'needs_refinement': False  # Reset refinement flag
         }
     except Exception as e:
         print(f"Error in present_question: {str(e)}")
@@ -85,6 +87,9 @@ def collect_response(state: dict) -> dict:
         # Ensure state is a dictionary
         if isinstance(state, str):
             state = ast.literal_eval(state)
+            
+        conversation_history = state.get('conversation_history', [])
+        
         if state.get("current_question"):
             response = input("\nYour answer: ")
             
@@ -94,42 +99,48 @@ def collect_response(state: dict) -> dict:
                 'response': response
             }
             
-            conversation_history = state.get('conversation_history', [])
             conversation_history.append(conversation_event)
             
             if not state.get('question_refined'):
                 # Create proper message format for LLM
                 messages = [
-                    SystemMessage(content="Answer with only 'yes' or 'no'."),
-                    HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'?")
+                    SystemMessage(content="You are evaluating whether a candidate understood an interview question based on their response. Answer with ONLY 'yes' or 'no'."),
+                    HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'? The answer is very short.")
                 ]
                 
                 check = llm.invoke(messages)
-                time.sleep(2)
+                time.sleep(1)
                 
-                
-                if check.content.lower().strip() == 'no':
+                if 'no' in check.content.lower():
                     return {
-                        'refine': True,
+                        'needs_refinement': True,
+                        'response': response,
                         'conversation_history': conversation_history
                     }
-            
+        
+            # If we don't need refinement, proceed normally
             plan = state.get("plan", [])
-            plan.pop(0)
+            
+            # Only remove the question from the plan if we're not going to refine it
+            if not state.get('needs_refinement', False):
+                if plan:  # Check if plan is not empty
+                    plan.pop(0)
+                    
             return {
                 'response': response,
                 'plan': plan,
-                'question_answered': True,
+                'question_answered': not state.get('needs_refinement', False),
                 'conversation_history': conversation_history
             }
-        return {'response': ''}
+        return {'response': '', 'conversation_history': conversation_history}
     except Exception as e:
         print(f"Error in collect_response: {str(e)}")
+        traceback.print_exc()
         return {'status': 'Error'}
     
 @tool(args_schema=StateParam)
 def refine_question(state: dict) -> dict:
-    """Refines the candidate's response to the current question."""
+    """Refines the current question to make it clearer for the candidate."""
     try:
         # Ensure state is a dictionary
         if isinstance(state, str):
@@ -137,7 +148,7 @@ def refine_question(state: dict) -> dict:
         
         conversation_history = state.get('conversation_history', [])
         
-        if state.get('refine'):
+        if state.get('needs_refinement', False):
             # Track the refinement attempt
             refinement_event = {
                 'event_type': 'refine_question',
@@ -146,31 +157,47 @@ def refine_question(state: dict) -> dict:
             
             # Create proper message format for LLM
             messages = [
-                SystemMessage(content="Please refine the following question to make it clearer while keeping it concise and short as possible."),
-                HumanMessage(content=f"Question to refine: {state['current_question']}")
+                SystemMessage(content="""
+                You are helping to refine an interview question that the candidate didn't understand.
+                Please rewrite the question to make it clearer and more specific.
+                Keep the refined question concise but add context or examples if helpful.
+                Maintain the same topic and difficulty level.
+                """),
+                HumanMessage(content=f"""
+                Original question: {state.get('current_question', '')}
+                Candidate's response: {state.get('response', '')}
+                
+                Please provide a refined version of this question.
+                """)
             ]
             
             refined = llm.invoke(messages)
-            time.sleep(2)
+            time.sleep(1)
             
-            refinement_event['refined_question'] = refined.content
+            refined_question = refined.content.strip()
+            refinement_event['refined_question'] = refined_question
             conversation_history.append(refinement_event)
             
             plan = state.get("plan", [])
-            plan[0] = refined.content
+            if plan:  # Check if plan is not empty
+                plan[0] = refined_question
+            
             return {
                 'plan': plan,
-                'refine': False,
+                'needs_refinement': False,
                 'question_refined': True,
                 'conversation_history': conversation_history
             }
-        conversation_history.append({'event_type': 'no_refinement happened','refine': state.get('refine')})
+        
+        # If we don't need refinement, just return the current state
         return {
             'current_question': state.get('current_question', ''),
-            'conversation_history': conversation_history
+            'conversation_history': conversation_history,
+            'needs_refinement': False
         }
     except Exception as e:
-        print(f"Error in refine_response: {str(e)}")
+        print(f"Error in refine_question: {str(e)}")
+        traceback.print_exc()
         return {'status': 'Error'}
 
 def create_interview_agent(llm):
@@ -180,11 +207,10 @@ def create_interview_agent(llm):
         ("system", """
          You are an interviewer conducting an interview with a candidate. Use the following tools to manage the process:  
 
-        Tools:  
         {tools}  
 
         ### **Format:**  
-        State: (current state as Python dictionary, **read-only** - tools update this automatically)  
+        State: (current state as Python dictionary)  
         Thought: (analyze state and tool outputs to decide the next action)  
         Action: (the action to take, must be one of [{tool_names}])  
         Action Input: (the input to the action)  
@@ -194,24 +220,25 @@ def create_interview_agent(llm):
         Final Answer: (final action when the interview process reaches completion)  
 
         ### **Critical Rules:**  
-        I. **Each tool will use some fields from the state so whenever using a tool you're going to focus the most on them specifically and dont care about other fields.**
-        II. **Always start by using `check_interview_plan` tool** Check the status of the interview plan to decide termination conditions (critical field: plan and status ).
-        III. **If the plan is complete, STOP IMMEDIATELY and return the current state.** you can know that the plan is complete if the status is 'Plan Complete' or plan field is empty.
-         
-        ### **Rules:**
-
-        3. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**  
-
-        4. **Never modify the state directly.** Tools will update the state automatically.  
-
-        5. **Only use the tools provided.** Do not invent new actions or state variables.  
-         
-        6. **Make sure to give the  tools the whole state** to ensure that the state is fully updated.
+        I. **Always pass the COMPLETE state when using any tool.** This ensures all context is preserved.
         
-        7. **Never add questions to the plan manually.**
+        II. **Always start by using `check_interview_plan` tool** to decide termination conditions.
+        
+        III. **If the plan is complete or status is 'Plan Complete', STOP IMMEDIATELY and return the current state.**
+        
+        IV. **Follow this exact sequence for conducting the interview:**
+           1. Present question to the candidate
+           2. Collect their response
+           3. If response indicates they didn't understand (needs_refinement=True):
+              a. Use refine_question tool to make the question clearer
+              b. Present the refined question
+              c. Collect their response again
          
-        8. **After refining a question always present it to the candidate.**
+        V. **Watch for the 'needs_refinement' flag in the state.** If true, you MUST use the refine_question tool.
 
+        VI. **If `question_answered=True` (from `collect_response`), STOP IMMEDIATELY and return the current state.**
+        
+        VII. **Never modify the state directly.** Tools will update it automatically.
         """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
@@ -226,12 +253,21 @@ def create_interview_agent(llm):
         )
 
 agent = create_interview_agent(llm)
+
 def start_interview_agent(state: State):
     """Manages the interview process."""
-    working_state = state.copy()
+    working_state = state.copy() if hasattr(state, 'copy') else state.copy() if isinstance(state, dict) else state
     
     try:
         print(f"\nStarting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
+        
+        # Ensure critical flags are present
+        if 'needs_refinement' not in working_state:
+            working_state['needs_refinement'] = False
+        if 'question_refined' not in working_state:
+            working_state['question_refined'] = False
+        if 'question_answered' not in working_state:
+            working_state['question_answered'] = False
         
         # Run through the steps
         result = agent.invoke({
@@ -244,9 +280,16 @@ def start_interview_agent(state: State):
         for step in result["intermediate_steps"]:
             if isinstance(step[1], dict):
                 working_state.update(step[1])
+        
+        # Ensure we've preserved crucial flags
+        print(f"DEBUG - After interview agent: needs_refinement={working_state.get('needs_refinement', False)}, "
+              f"question_refined={working_state.get('question_refined', False)}, "
+              f"question_answered={working_state.get('question_answered', False)}")
             
         # Update the original state with all changes
         if hasattr(state, 'update'):
+            state.update(working_state)
+        elif isinstance(state, dict) and isinstance(working_state, dict):
             state.update(working_state)
 
         return working_state
@@ -258,15 +301,16 @@ def start_interview_agent(state: State):
 
 if __name__ == "__main__":
     test_state = {
-        'name': 'fawez',
+        'name': 'John Doe',
         'applied_role': 'Software Developer',
         'plan': ["What is your greatest strength?", "Why do you want this job?"],
         'current_question': '',
         'response': '',
         'status': 'Plan Incomplete',
-        'refine': False,
+        'needs_refinement': False,
         'question_refined': False,
-        'question_answered': False
+        'question_answered': False,
+        'conversation_history': []
     }
-    start_interview_agent(test_state)
-    print(test_state)
+    result = start_interview_agent(test_state)
+    print("Final state:", result)
