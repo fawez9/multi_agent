@@ -54,12 +54,6 @@ def present_question(state: dict) -> dict:
         
         # Initialize internal flags if not present
         internal_flags = state.get('_internal_flags', {})
-        if not internal_flags:
-            internal_flags = {
-                'needs_refinement': False,
-                'question_refined': False,
-                'question_answered': False
-            }
         
         conversation_history = state.get('conversation_history', [])
         plan = state.get("plan", [])
@@ -106,12 +100,6 @@ def collect_response(state: dict) -> dict:
         
         # Get internal flags
         internal_flags = state.get('_internal_flags', {})
-        if not internal_flags:
-            internal_flags = {
-                'needs_refinement': False,
-                'question_refined': False,
-                'question_answered': False
-            }
             
         conversation_history = state.get('conversation_history', [])
         
@@ -192,12 +180,6 @@ def refine_question(state: dict) -> dict:
         
         # Get internal flags
         internal_flags = state.get('_internal_flags', {})
-        if not internal_flags:
-            internal_flags = {
-                'needs_refinement': False,
-                'question_refined': False,
-                'question_answered': False
-            }
         
         conversation_history = state.get('conversation_history', [])
         
@@ -256,42 +238,9 @@ def refine_question(state: dict) -> dict:
         traceback.print_exc()
         return {'status': 'Error'}
 
-@tool(args_schema=StateParam)
-def reset_eval_flag(state: dict) -> dict:
-    """Resets the evaluation flag after evaluation is complete."""
-    try:
-        # Ensure state is a dictionary
-        if isinstance(state, str):
-            state = ast.literal_eval(state)
-        
-        # Get internal flags
-        internal_flags = state.get('_internal_flags', {})
-        if not internal_flags:
-            internal_flags = {
-                'needs_refinement': False,
-                'question_refined': False,
-                'question_answered': False
-            }
-        
-        # Reset the flags
-        internal_flags['question_answered'] = False
-        internal_flags['question_refined'] = False
-        internal_flags['needs_refinement'] = False
-        
-        # Create a new state with the updated flags and explicitly set ready_for_eval to False
-        updated_state = state.copy()
-        updated_state['_internal_flags'] = internal_flags
-        updated_state['ready_for_eval'] = False  # Explicitly set this to False
-        
-        return updated_state
-    except Exception as e:
-        print(f"Error in reset_eval_flag: {str(e)}")
-        traceback.print_exc()
-        return {'status': 'Error'}
-
 def create_interview_agent(llm):
     """Creates an agent that conducts the interview."""
-    tools = [check_interview_plan, present_question, collect_response, refine_question, reset_eval_flag]
+    tools = [check_interview_plan, present_question, collect_response, refine_question]
     prompt = ChatPromptTemplate.from_messages([
         ("system", """
          You are an interviewer conducting an interview with a candidate. Use the following tools to manage the process:  
@@ -313,7 +262,7 @@ def create_interview_agent(llm):
         
         II. **Always start by using `check_interview_plan` tool** to decide termination conditions.
         
-        III. **If the plan is complete or status is 'Plan Complete', STOP IMMEDIATELY and return the current state.**
+        III. **If the plan is complete or status is 'Plan Complete'**, STOP IMMEDIATELY and return the current state.
         
         IV. **Follow this exact sequence for conducting the interview:**
            1. Present question to the candidate
@@ -350,13 +299,7 @@ agent = create_interview_agent(llm)
 def start_interview_agent(state: State):
     """Manages the interview process."""
     # Create a proper deep copy of the state to ensure we preserve all fields
-    working_state = {}
-    if isinstance(state, dict):
-        working_state = state.copy()
-    else:
-        # Convert to dict if it's a State object
-        for key, value in state.__dict__.items() if hasattr(state, '__dict__') else state.items():
-            working_state[key] = value
+    working_state = state.copy()
     
     # Initialize the internal flags dictionary if not present
     if '_internal_flags' not in working_state:
@@ -378,19 +321,19 @@ def start_interview_agent(state: State):
         working_state['_internal_flags']['question_refined'] = False
     
     # Debug the state
-    print(f"\nDEBUG: Current state keys: {working_state.keys()}")
+    """ print(f"\nDEBUG: Current state keys: {working_state.keys()}")
     print(f"DEBUG: ready_for_eval = {working_state.get('ready_for_eval', False)}")
     print(f"DEBUG: status = {working_state.get('status', 'Unknown')}")
-    print(f"DEBUG: plan = {working_state.get('plan', [])}")
+    print(f"DEBUG: plan = {working_state.get('plan', [])}") """
     
     try:
-        print(f"\nContinuing interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
+        print(f"\Starting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
         
         # Debug internal flags
         internal_flags = working_state.get('_internal_flags', {})
-        debug_flags = f"BEFORE: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
+        """ debug_flags = f"BEFORE: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
         print(f"DEBUG: {debug_flags}")
-        
+         """
         # Run through the steps
         result = agent.invoke({
             "input": working_state
@@ -405,9 +348,9 @@ def start_interview_agent(state: State):
         
         # Debug internal flags after processing
         internal_flags = working_state.get('_internal_flags', {})
-        debug_flags = f"AFTER: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
+        """ debug_flags = f"AFTER: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
         print(f"DEBUG: {debug_flags}")
-        print(f"DEBUG: ready_for_eval = {working_state.get('ready_for_eval', False)}")
+        print(f"DEBUG: ready_for_eval = {working_state.get('ready_for_eval', False)}") """
         
         # Force the status update based on the plan
         if 'plan' in working_state and not working_state.get('plan'):
