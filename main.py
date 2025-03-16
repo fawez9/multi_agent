@@ -84,7 +84,7 @@ Skills: {state['skills']}\n
     report_text = '\n'.join(report)
     return {'report': report_text, 'state': state}
 
-
+#TODO: Convert this into an agent where he can make sql interaction with db
 def store_db(state: dict):
     """Stores the report data and conversation history in the database."""
 
@@ -98,19 +98,31 @@ def store_db(state: dict):
     cursor = conn.cursor()
 
     try:
-        # Insert candidate information
+        # Get candidate information
         cursor.execute("""
-            INSERT INTO candidates (name, email, phone, role, skills)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id;
+            SELECT id FROM candidates
+            WHERE name = %s AND email = %s;
         """, (
             state.get('name'),
             state.get('email'),
-            state.get('phone'),
-            state.get('applied_role'),
-            state.get('skills')
         ))
-        candidate_id = cursor.fetchone()[0]
+        result = cursor.fetchone()
+        if not result:
+            # If candidate doesn't exist, insert them
+            cursor.execute("""
+                INSERT INTO candidates (name, email)
+                VALUES (%s,%s,%s,%s,%s)
+                RETURNING id;
+            """, (
+                state.get('name'),
+                state.get('email'),
+                state.get('phone'),
+                state.get('applied_role'),
+                state.get('skills')
+            ))
+            candidate_id = cursor.fetchone()[0]
+        else:
+            candidate_id = result[0]
 
         # Insert report metadata
         cursor.execute("""
@@ -202,12 +214,12 @@ workflow.add_conditional_edges(
     lambda s: (
         "evaluation_agent" if s.get('ready_for_eval', False) else 
         "gen_report" if s.get('status') == 'Plan Complete' else 
-        "interview_agent"  # This will loop back to interview_agent if neither condition is met
+        "end"  # This will loop back to interview_agent if neither condition is met
     ),
     {
         "evaluation_agent": "evaluation_agent",  # When ready_for_eval is True
         "gen_report": "gen_report",  # When all questions are done
-        "interview_agent": "interview_agent"  # Continue interviewing
+        "end": "end"  # Continue interviewing
     }
 )
 workflow.add_edge("evaluation_agent", "interview_agent")

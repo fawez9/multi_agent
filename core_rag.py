@@ -1,62 +1,151 @@
 import os
+import uuid
+import shutil
 import time
+from datetime import datetime
 from langchain.schema import Document
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict
 from langchain_postgres.vectorstores import PGVector
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from needs import llm, embeddings, connection, collection_name, text_splitter
-
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
+from needs import (
+    llm, 
+    embeddings, 
+    connection, 
+    text_splitter, 
+    knowledge_base_path, 
+    engine
+)
 
 class BaseRAG:
     """Base RAG class for multi-agent system"""
-    
-    def __init__(self, docs_path: str = "./knowledge_base", collection_name: Optional[str] = None):
-        self.docs_path = docs_path
-        self.collection_name = collection_name or "default"
+    #NOTE: the collection name is optional you can add it as a parameter
+    def __init__(self, collection_name: Optional[str] = None):
+        self.collection_name = collection_name
         self.embeddings = embeddings
         self.vectorstore = None
-        self._initialize_vectorstore()
-    def _initialize_vectorstore(self) -> Union[PGVector, None]:
-        """Initialize the vector store."""
+        if collection_name:
+            self._initialize_vectorstore()
+
+    def _initialize_vectorstore(self) -> None:
+        """Initialize the vector store for an existing collection."""
         try:
-            print(f"Attempting to load existing collection '{self.collection_name}'...")
-            vectorstore = PGVector(
+            print(f"Loading collection '{self.collection_name}'...")
+            self.vectorstore = PGVector(
                 collection_name=self.collection_name,
                 connection=connection,
                 embeddings=self.embeddings
             )
-            
-            # Set temporarily to check if documents exist
-            self.vectorstore = vectorstore
-            if os.path.exists(self.docs_path) and self._document_exists(self.docs_path)[0]:
-                print("Collection loaded successfully.")
-                return
+            print("Collection loaded successfully.")
         except Exception as e:
             print(f"Error loading collection: {e}")
-            
-        return self._create_new_vectorstore()
+            raise
 
-    def _create_new_vectorstore(self):
-        """Create a new vector store from the documents in the specified directory."""
-        if not os.path.exists(self.docs_path):
-            raise FileNotFoundError(f"Documents directory not found: {self.docs_path}")
+    def process_document(self, file_path: str, candidate_id: Optional[int] = None) -> Dict[str, Union[str, int]]:
+        """
+        Process a single document and create vector store entry.
         
-        loader = DirectoryLoader(self.docs_path, glob="**/*.*")
-        documents = loader.load()
-        
-        if not documents:
-            raise ValueError("No documents found in the specified directory.")
-        
-        texts = text_splitter.split_documents(documents)
-        
-        print(f"Creating new vector store with {len(texts)} document chunks...")
-        return PGVector.from_documents(
-            embedding=self.embeddings,
-            collection_name=self.collection_name,
-            connection=connection,
-            documents=texts,
-            use_jsonb=True
-        )
+        Args:
+            file_path: Path to the document file
+            candidate_id: Optional ID of existing candidate
+            
+        Returns:
+            Dict containing session_id, collection_id, and collection_name
+        """
+        try:
+            # Generate UUID for document collection
+            collection_uuid = str(uuid.uuid4())
+            collection_name = f"collection_{collection_uuid[:8]}"
+            
+            # Create and setup document directory
+            doc_dir = os.path.join(knowledge_base_path, collection_uuid)
+            os.makedirs(doc_dir, exist_ok=True)
+            
+            # Copy document to new directory
+            doc_name = os.path.basename(file_path)
+            new_path = os.path.join(doc_dir, doc_name)
+            shutil.copy2(file_path, new_path)
+            
+            # Load and process document based on type
+            if file_path.lower().endswith('.pdf'):
+                loader = PyPDFLoader(new_path)
+            else:
+                loader = TextLoader(new_path)
+                
+            documents = loader.load()
+            texts = text_splitter.split_documents(documents)
+            
+            # Create database entries
+            with engine.connect() as conn:
+                cursor = conn.connection.cursor()
+                
+                # Create collection
+                cursor.execute(
+                    """
+                    INSERT INTO langchain_pg_collection (uuid, name, cmetadata) 
+                    VALUES (%s, %s, '{}'::jsonb) 
+                    RETURNING uuid
+                    """,
+                    (collection_uuid, collection_name)
+                )
+                collection_id = cursor.fetchone()[0]
+                
+                # Create session if candidate_id is provided
+                session_id = None
+                if candidate_id:
+                    cursor.execute(
+                        """
+                        INSERT INTO sessions 
+                        (candidate_id, collection_id, date) 
+                        VALUES (%s, %s, %s) 
+                        RETURNING id
+                        """,
+                        (candidate_id, collection_id, datetime.now()) #TODO: change to a specific date
+                    )
+                    session_id = cursor.fetchone()[0]
+                
+                conn.connection.commit()
+            
+            # Create vector store
+            self.vectorstore = PGVector.from_documents(
+                embedding=embeddings,
+                collection_name=collection_name,
+                connection=connection,
+                use_jsonb=True,
+                documents=texts,
+            )
+            
+            self.collection_name = collection_name
+            print(f"Processed document with {len(texts)} chunks")
+            
+            return {
+                "session_id": session_id,
+                "collection_id": collection_id,
+                "collection_name": collection_name
+            }
+            
+        except Exception as e:
+            print(f"Error processing document: {e}")
+            raise
+
+    def load_session(self, session_id: int) -> None:
+        """Load a specific interview session."""
+        with engine.connect() as conn:
+            cursor = conn.connection.cursor()
+            cursor.execute(
+                """
+                SELECT c.name as collection_name 
+                FROM sessions s
+                JOIN langchain_pg_collection c ON s.collection_id = c.uuid
+                WHERE s.id = %s
+                """,
+                (session_id,)
+            )
+            result = cursor.fetchone()
+            if not result:
+                raise ValueError(f"Session {session_id} not found")
+                
+            self.collection_name = result[0]
+            self._initialize_vectorstore()
 
     def similarity_search(self, query: str, k: int = 3) -> List[Document]:
         """Search for similar documents in the database."""
@@ -77,56 +166,26 @@ class BaseRAG:
         time.sleep(2)
         return response.content
 
-    def add_documents(self, file_paths: List[str]) -> None:
-        """Add new documents to the database."""
-        if not file_paths:
-            raise ValueError("No file paths provided.")
-        
-        new_docs = []
-        for file_path in file_paths:
-            if not os.path.exists(file_path):
-                print(f"File not found: {file_path}")
-                continue
-
-            verify, text = self._document_exists(file_path)
-            if verify:
-                print(f"Document similar to {file_path} already exists in the database.")
-                continue
-            
-            splits = text_splitter.split_text(text)
-            new_docs.extend([Document(page_content=split) for split in splits])
-        
-        if new_docs:
-            self.vectorstore.add_documents(new_docs)
-            print(f"Added {len(new_docs)} new document chunks to the database.")
-        else:
-            print("No new documents were added.")
-
-    def _document_exists(self, file_path: str) -> tuple[bool, str]:
-        """Check if a document already exists in the database."""
-        if os.path.isdir(file_path):
-            docs = DirectoryLoader(file_path).load()
-        else:
-            docs = TextLoader(file_path).load()
-            
-        if not docs:
-            raise ValueError(f"No documents found at: {file_path}")
-            
-        text = docs[0].page_content
-        sample_text = text[:100]
-        
-        try:
-            existing_docs = self.vectorstore.similarity_search(sample_text, k=1)
-            if existing_docs and sample_text in existing_docs[0].page_content:
-                return True, text
-        except Exception as e:
-            print(f"Error checking for duplicates: {e}.")
-        
-        return False, text
-
-
-rag = BaseRAG(collection_name=collection_name, docs_path="./knowledge_base")
+# Create single instance
+rag = BaseRAG() 
+rag.load_session(1) #TODO: change the behaviour of session ids
 if __name__ == "__main__":
-    rag.add_documents(file_paths=["./new_docs/doc1.txt"])
-    response = rag.generate_response("What is the candidate's name?")
-    print(response)
+    # Example usage
+    try:
+        # Process a new document
+        # result = rag.process_document("/home/fawez/Downloads/HATTABI_FAWEZ_RES.pdf", candidate_id=1)
+        # print(f"Created session: {result}")
+        # Test query
+        prompt = """Based on the candidate's resume, extract and return ONLY a JSON object (no markdown, no code blocks) with the following information:
+        {
+            "name": "What is the candidate's name?",
+            "applied_role": "What role is the candidate applying for?",
+            "skills": "What are the candidate's technical skills?",
+            "phone": "What is the candidate's phone?",
+            "email": "What is the candidate's email?"
+        }"""
+        response = rag.generate_response(prompt)
+        print(f"Response: {response}")
+        
+    except Exception as e:
+        print(f"Error in main: {e}")

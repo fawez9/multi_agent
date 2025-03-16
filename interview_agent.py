@@ -258,13 +258,12 @@ def create_interview_agent(llm):
         Final Answer: (final action when the interview process reaches completion)  
 
         ### **Critical Rules:**  
-        I. **Always pass the COMPLETE state when using any tool.** This ensures all context is preserved.
+        I. **Always start by using `check_interview_plan` tool** to decide termination conditions (status 'Plan Complete' or plan is empty).
         
-        II. **Always start by using `check_interview_plan` tool** to decide termination conditions.
+        II. **Always pass the COMPLETE state when using any tool.** This ensures all context is preserved.
         
-        III. **If the plan is complete or status is 'Plan Complete'**, STOP IMMEDIATELY and return the current state.
         
-        IV. **Follow this exact sequence for conducting the interview:**
+        III. **Follow this exact sequence for conducting the interview:**
            1. Present question to the candidate
            2. Collect their response
            3. Check the _internal_flags['needs_refinement'] flag:
@@ -274,12 +273,11 @@ def create_interview_agent(llm):
            4. If the response is understood (_internal_flags['question_answered'] is true), check:
               a. If 'ready_for_eval' is true, STOP and return the state for evaluation
         
-        V. **Check the internal flags in the _internal_flags dictionary**. These track the interview process.
+        IV. **Check the internal flags in the _internal_flags dictionary**. These track the interview process.
         
-        VI. **If you see 'ready_for_eval' is true in the state, STOP IMMEDIATELY and return the current state for evaluation.**
+        V. **If you see 'ready_for_eval' is true in the state, STOP IMMEDIATELY and return the current state for evaluation.**
         
-        VII. **Never modify the state directly.** Tools will update it automatically.
-         
+        VI. **Never modify the state directly.** Tools will update it automatically.
          
         """),
         ("human", "State: {input}"),
