@@ -1,16 +1,24 @@
-# Load environment variables
+# Standard library imports
 import os
 import re
-from psycopg2 import pool
-from sqlalchemy import create_engine
-from config import config
+from typing import Annotated, List, Dict
+from typing_extensions import TypedDict
+
+# Third-party imports
 from dotenv import load_dotenv
 import google.generativeai as genai
-from typing import Annotated,List, Dict
-from typing_extensions import TypedDict
+from psycopg2 import pool
+from sqlalchemy import create_engine
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import (
+    ChatGoogleGenerativeAI,
+    GoogleGenerativeAIEmbeddings
+)
 
+# Local imports
+from config import config
+
+# Type definitions
 class State(TypedDict):
     """State of the interview"""
     messages: List[str]
@@ -22,54 +30,58 @@ class State(TypedDict):
     status: str
     current_question: str
     response: str
-    technical_score: Annotated[str, "Technical score"] # Annotated is used to add metadata to the type
+    technical_score: Annotated[str, "Technical score"]
     report: str
     email: str
     phone: str
     conversation_history: Annotated[List[Dict[str, str]], "List of conversation history"]
 
-
+# Database configuration
 db_config = config()
-# Connect to PostgreSQL database
-# print("Connecting to the PostgreSQL database...")
 connection_pool = pool.SimpleConnectionPool(**db_config)
+connection = "postgresql+psycopg://postgres:123321@localhost:6024/interview_db"
+engine = create_engine(connection)
 
-
-# Close the connection pool when the application shuts down
 def close_connection_pool():
+    """Close the connection pool when the application shuts down."""
     connection_pool.closeall()
     print("Connection pool closed.")
 
-def is_uuid(folder_name):
-    # UUID format validation pattern
+# File system utilities
+def is_uuid(folder_name: str) -> bool:
+    """Validate if a folder name matches UUID format."""
     pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
     return bool(pattern.match(folder_name))
 
-
-# Configure Google GenAI
+# AI/ML Configuration
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Initialize LLM
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0) # TODO: Change for better model  #NOTE: gemini-2.0-flash is bugging
-# Initialize embeddings
-embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+# Initialize LLM components
+llm = ChatGoogleGenerativeAI(
+    model="gemini-1.5-flash",
+    temperature=0
+)  # TODO: Change for better model  #NOTE: gemini-2.0-flash is bugging
+
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/text-embedding-004"
+)
+
 text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200
-            )
+    chunk_size=1000,
+    chunk_overlap=200
+)
 
-connection = "postgresql+psycopg://postgres:123321@localhost:6024/interview_db"
-collection_name = None
-
+# File system configuration
 knowledge_base_path = "./knowledge_base"
-folders = [f for f in os.listdir(knowledge_base_path) if os.path.isdir(os.path.join(knowledge_base_path, f)) and is_uuid(f)]
+os.makedirs(knowledge_base_path, exist_ok=True)
 
+folders = [
+    f for f in os.listdir(knowledge_base_path)
+    if os.path.isdir(os.path.join(knowledge_base_path, f)) and is_uuid(f)
+]
 
-engine = create_engine(connection)
-
-
-
+# For testing/development
 if __name__ == "__main__":
     # Initialize the RAG system
-    rag ="hello"
+    rag = "hello"
