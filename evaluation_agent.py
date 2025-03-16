@@ -2,16 +2,18 @@ import ast
 import time
 import json
 import traceback
-from core_rag import rag
-from needs import llm, State
+from pydantic import BaseModel, Field, field_validator
+
 from langchain_core.tools import tool
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field, field_validator
 from langchain.agents import AgentExecutor, create_react_agent
 
+from core_rag import rag
+from needs import llm, State
 
 class StateParam(BaseModel):
+    """Pydantic model for the state parameter."""
     state: dict = Field(..., description="The current interview state")
     @field_validator('state', mode='before')
     @classmethod
@@ -119,6 +121,7 @@ def calculate_score(state: dict) -> dict:
 
 
 def create_evaluation_agent():
+    """Creates an agent to evaluate a candidate's response."""
     tools = [evaluate_response, calculate_score]
     
     prompt = ChatPromptTemplate.from_messages([
@@ -164,6 +167,7 @@ def create_evaluation_agent():
 agent = create_evaluation_agent()
 
 def start_evaluation_agent(state: State):
+    """Starts the evaluation agent."""
     print("Starting concise evaluation")
     
     # Create a proper copy of the state
