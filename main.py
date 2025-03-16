@@ -3,6 +3,7 @@ import traceback
 import candidate
 from core_rag import rag
 from langgraph.graph import StateGraph 
+from database_agent import start_db_agent
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
 from needs import State, connection_pool ,close_connection_pool
@@ -84,98 +85,6 @@ Skills: {state['skills']}\n
     report_text = '\n'.join(report)
     return {'report': report_text, 'state': state}
 
-#TODO: Convert this into an agent where he can make sql interaction with db
-def store_db(state: dict):
-    """Stores the report data and conversation history in the database."""
-
-    # Check for API error
-    if state.get('plan') == ['API Error: Failed to generate questions']:
-        print("API error occurred. Report not stored in the database.")
-        return
-
-    # Take the connection from the pool
-    conn = connection_pool.getconn()
-    cursor = conn.cursor()
-
-    try:
-        # Get candidate information
-        cursor.execute("""
-            SELECT id FROM candidates
-            WHERE name = %s AND email = %s;
-        """, (
-            state.get('name'),
-            state.get('email'),
-        ))
-        result = cursor.fetchone()
-        if not result:
-            # If candidate doesn't exist, insert them
-            cursor.execute("""
-                INSERT INTO candidates (name, email)
-                VALUES (%s,%s,%s,%s,%s)
-                RETURNING id;
-            """, (
-                state.get('name'),
-                state.get('email'),
-                state.get('phone'),
-                state.get('applied_role'),
-                state.get('skills')
-            ))
-            candidate_id = cursor.fetchone()[0]
-        else:
-            candidate_id = result[0]
-
-        # Insert report metadata
-        cursor.execute("""
-            INSERT INTO reports (candidate_id)
-            VALUES (%s)
-            RETURNING id;
-        """, (candidate_id,))
-        report_id = cursor.fetchone()[0]
-
-        # Insert interview scores
-        for score in state.get('scores', []):
-            cursor.execute("""
-                INSERT INTO interview_scores (report_id, question, response, evaluation)
-                VALUES (%s, %s, %s, %s);
-            """, (
-                report_id,
-                score.get('question'),
-                score.get('response'),
-                score.get('evaluation')
-            ))
-
-        # Insert conversation history events
-        for event in state.get('conversation_history', []):
-            # Convert the event to a JSON-compatible format
-            import json
-            event_data = json.dumps(event)
-            
-            cursor.execute("""
-                INSERT INTO conversation_events (report_id, event_type, event_data, timestamp)
-                VALUES (%s, %s, %s, to_timestamp(%s));
-            """, (
-                report_id,
-                event.get('event_type'),
-                event_data,
-                event.get('timestamp', time.time())
-            ))
-
-        # Commit the transaction
-        conn.commit()
-        print("Report and full conversation history stored successfully in the database.")
-        return
-
-    except Exception as e:
-        # Rollback in case of error
-        conn.rollback()
-        print(f"Error storing report in the database: {e}")
-        traceback.print_exc()
-
-    finally:
-        # Close the connection
-        if conn:
-            cursor.close()
-            connection_pool.putconn(conn)
 
 def end_interview(state: State):
     """Ends the interview and displays the final report."""
@@ -194,7 +103,7 @@ nodes = [
     ("interview_agent", start_interview_agent),
     ("evaluation_agent",start_evaluation_agent),
     ("gen_report", generate_report),
-    ("store_db", store_db),
+    ("database_agent", start_db_agent),
     ("end", end_interview)
 ]
 
@@ -223,8 +132,8 @@ workflow.add_conditional_edges(
     }
 )
 workflow.add_edge("evaluation_agent", "interview_agent")
-workflow.add_edge("gen_report", "store_db")
-workflow.add_edge("store_db", "end")
+workflow.add_edge("gen_report", "database_agent")
+workflow.add_edge("database_agent", "end")
 workflow.set_finish_point("end")
 
 
