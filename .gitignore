@@ -3,6 +3,7 @@
 .vscode
 __pycache__
 test.py
+facial_tone_analysis.py
 knowledge_base
 new_docs
 vectorstores

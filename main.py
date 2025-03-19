@@ -6,7 +6,7 @@ from langgraph.graph import StateGraph
 from database_agent import start_db_agent
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
-from needs import State, connection_pool ,close_connection_pool
+from needs import State ,close_connection_pool
 
 
 def start_interview(state: State):
@@ -88,7 +88,6 @@ Skills: {state['skills']}\n
 
 def end_interview(state: State):
     """Ends the interview and displays the final report."""
-    close_connection_pool()
     print("\n" + state['report'])
     print("\nInterview completed. Thank you!")
 
@@ -121,7 +120,7 @@ workflow.add_edge("gen_plan", "interview_agent")
 workflow.add_conditional_edges(
     "interview_agent",
     lambda s: (
-        "evaluation_agent" if s.get('ready_for_eval', False) else 
+        "evaluation_agent" if s.get('ready_for_eval', False) else # NOTE: I changed this flag after a certain bug with looping and not entering to evaluation
         "gen_report" if s.get('status') == 'Plan Complete' else 
         "end"  # This will loop back to interview_agent if neither condition is met
     ),

@@ -59,7 +59,7 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Initialize LLM components
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
+    model="gemini-2.0-flash",
     temperature=0
 )  # TODO: Change for better model  #NOTE: gemini-2.0-flash is bugging
 

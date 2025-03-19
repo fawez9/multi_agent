@@ -8,7 +8,7 @@ from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 
-from needs import llm, connection_pool, State
+from needs import close_connection_pool, llm, connection_pool, State
 
 class StateParam(BaseModel):
     """Pydantic model for the state parameter."""
@@ -294,6 +294,7 @@ def start_db_agent(state: State):
         
         result = agent.invoke({"input": state})
         print("\nDatabase operations completed successfully.")
+        close_connection_pool()
         return result
     except Exception as e:
         print(f"Error in database operations: {e}")

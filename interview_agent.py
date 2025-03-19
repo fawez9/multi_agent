@@ -75,7 +75,7 @@ def present_question(state: dict) -> dict:
         }
         conversation_history.append(question_event)
         
-        print(f"\nQ: {current_question}")
+        print(f"\nQ: {current_question}") #TODO: Replace with speech synthesis (TTS: text-to-speech)
         
         # Update internal flags
         internal_flags['needs_refinement'] = False
@@ -104,8 +104,10 @@ def collect_response(state: dict) -> dict:
         conversation_history = state.get('conversation_history', [])
         
         if state.get("current_question"):
-            response = input("\nYour answer: ")
+            response = input("\nYour answer: ") #TODO: Replace with speech recognition (ASR : automatic speech recognition)
             
+            #TODO: simultaneous tone analysis and facial expression analysis
+
             # Track conversation history
             conversation_event = {
                 'event_type': 'collect_response',
