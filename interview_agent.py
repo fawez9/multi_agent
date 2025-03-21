@@ -14,35 +14,63 @@ from needs import llm, State
 class StateParam(BaseModel):
     """Pydantic model for the state parameter."""
     state: dict = Field(..., description="The current interview state")
+    
     @field_validator('state', mode='before')
     @classmethod
     def parse_state(cls, value):
+        # If already a dict, return as is
         if isinstance(value, dict):
             return value
+            
+        # If string, try to parse
         if isinstance(value, str):
             try:
+                # First try ast.literal_eval as it's safer for Python literals
                 return ast.literal_eval(value)
             except (ValueError, SyntaxError):
                 try:
+                    # Then try json.loads as fallback
                     return json.loads(value)
                 except json.JSONDecodeError:
-                    pass
-        raise ValueError(f"Input should be a valid dictionary")
+                    # If both fail, try to clean the string and retry json.loads
+                    cleaned_value = value.replace("'", '"').replace('\n', '\\n')
+                    try:
+                        return json.loads(cleaned_value)
+                    except json.JSONDecodeError:
+                        raise ValueError("Could not parse state string into dictionary")
+                        
+        raise ValueError("State must be a dictionary or a valid string representation of a dictionary")
 
 @tool(args_schema=StateParam)
 def check_interview_plan(state: dict) -> dict:
     """Checks the status of the interview plan."""
     try:
-        # Ensure state is a dictionary
+        # Ensure state is a dictionary - fixed conversion
         if isinstance(state, str):
             state = ast.literal_eval(state)
+        
         plan = state.get("plan", [])
+        conversation_history = state.get("conversation_history", [])
+        internal_flags = state.get("_internal_flags", {})
+        
         if not plan:
-            return {'status': 'Plan Complete'}
-        return {'status': 'Plan Incomplete'}
+            return {
+                'status': 'Plan Complete',
+                'conversation_history': conversation_history,
+                '_internal_flags': internal_flags
+            }
+        
+        return {
+            'status': 'Plan Incomplete',
+            'plan': plan,
+            'conversation_history': conversation_history,
+            '_internal_flags': internal_flags
+        }
+        
     except Exception as e:
         print(f"Error in check_interview_plan: {str(e)}")
-        return {'status': 'Error'}
+        traceback.print_exc()
+        return {'status': 'Error', 'error': str(e)}
 
 @tool(args_schema=StateParam)
 def present_question(state: dict) -> dict:
@@ -281,6 +309,8 @@ def create_interview_agent(llm):
         
         VI. **Never modify the state directly.** Tools will update it automatically.
          
+        VII.**Make sure to pass the whole state dictionary in the Action Input without adding 'state' as a key** to preserve all context.
+         
         """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
@@ -297,73 +327,45 @@ def create_interview_agent(llm):
 agent = create_interview_agent(llm)
 
 def start_interview_agent(state: State):
-    """Manages the interview process."""
-    # Create a proper deep copy of the state to ensure we preserve all fields
-    working_state = state.copy()
-    
-    # Initialize the internal flags dictionary if not present
-    if '_internal_flags' not in working_state:
-        working_state['_internal_flags'] = {
-            'needs_refinement': False,
-            'question_refined': False,
-            'question_answered': False,
-        }
-    
-    # Check if coming back from evaluation
-    if working_state.get('technical_score'):
-        print("DEBUG: Coming back from evaluation, resetting flags")
-        # Reset the ready_for_eval flag
-        working_state['ready_for_eval'] = False
-        # Reset the technical_score since we've now processed it
-        working_state['technical_score'] = ''
-        # Reset internal flags
-        working_state['_internal_flags']['question_answered'] = False
-        working_state['_internal_flags']['question_refined'] = False
-    
-    # Debug the state
-    """ print(f"\nDEBUG: Current state keys: {working_state.keys()}")
-    print(f"DEBUG: ready_for_eval = {working_state.get('ready_for_eval', False)}")
-    print(f"DEBUG: status = {working_state.get('status', 'Unknown')}")
-    print(f"DEBUG: plan = {working_state.get('plan', [])}") """
-    
+    """Starts the interview agent."""
     try:
-        print(f"\Starting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
+        working_state=state.copy()
         
-        # Debug internal flags
-        internal_flags = working_state.get('_internal_flags', {})
-        """ debug_flags = f"BEFORE: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
-        print(f"DEBUG: {debug_flags}")
-         """
-        # Run through the steps
-        result = agent.invoke({
-            "input": working_state
-        })
+        print(f"\nStarting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
+        
+        # Clean the working state to ensure all values are JSON serializable
+        def clean_value(v):
+            if isinstance(v, (str, int, float, bool, type(None))):
+                return v
+            elif isinstance(v, (list, tuple)):
+                return [clean_value(x) for x in v]
+            elif isinstance(v, dict):
+                return {str(k): clean_value(v) for k, v in v.items()}
+            else:
+                return str(v)
+        
+        working_state = {str(k): clean_value(v) for k, v in working_state.items()}
+        
+        # Pass the cleaned state to the agent
+        result = agent.invoke({"input": working_state})
         
         time.sleep(2)
         
         # Update working state with all intermediate steps
-        for step in result["intermediate_steps"]:
-            if isinstance(step[1], dict):
-                working_state.update(step[1])
-        
-        # Debug internal flags after processing
-        internal_flags = working_state.get('_internal_flags', {})
-        """ debug_flags = f"AFTER: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
-        print(f"DEBUG: {debug_flags}")
-        print(f"DEBUG: ready_for_eval = {working_state.get('ready_for_eval', False)}") """
+        if result.get("intermediate_steps"):
+            for step in result["intermediate_steps"]:
+                if isinstance(step[1], dict):
+                    working_state.update(step[1])
         
         # Force the status update based on the plan
         if 'plan' in working_state and not working_state.get('plan'):
             working_state['status'] = 'Plan Complete'
         
-        # Update the original state with all changes
-        if hasattr(state, 'update'):
-            state.update(working_state)
-        elif isinstance(state, dict):
+        # Update the original state
+        if isinstance(state, dict):
             state.clear()
             state.update(working_state)
         else:
-            # Handle State object
             for key, value in working_state.items():
                 setattr(state, key, value)
         

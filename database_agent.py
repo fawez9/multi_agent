@@ -55,7 +55,13 @@ def check_candidate_exists(state: dict) -> dict:
             WHERE name = %s AND email = %s;
         """, (name, email))
         result = cursor.fetchone()
-        return {"exists": bool(result), "id": result[0] if result else None}
+        
+        # Create a new state dictionary with the candidate_id
+        new_state = state.copy()
+        if result:
+            new_state['candidate_id'] = result[0]
+            return {"exists": True, "id": result[0], "state": new_state}
+        return {"exists": False, "state": new_state}
     finally:
         cursor.close()
         connection_pool.putconn(conn)
@@ -129,7 +135,11 @@ def create_report(state: dict) -> dict:
         """, (candidate_id,))
         report_id = cursor.fetchone()[0]
         conn.commit()
-        return {"report_id": report_id}
+        
+        # Return updated state with report_id
+        new_state = state.copy()
+        new_state['report_id'] = report_id
+        return {"report_id": report_id, "state": new_state}
     except Exception as e:
         conn.rollback()
         return {"error": str(e)}
@@ -234,30 +244,24 @@ def create_db_agent():
         ("system", """
         You are a database operations agent responsible for storing interview data.
         Follow these steps precisely:
+         {tools}{tool_names}
 
         1. Check if candidate exists using check_candidate_exists tool with the email from the state
-        2. If exists, use the returned candidate ID for the next steps
+        2. If exists, use the returned state (which includes candidate_id) for the next steps
         3. If not exists, create candidate using create_candidate tool with the full state
-        4. Create a new report using create_report tool with the candidate ID
+        4. Create a new report using create_report tool with the state containing candidate_id
         5. Store interview scores using store_interview_scores tool with the report ID and scores
         6. Store conversation history using store_conversation_history tool with the report ID and history
 
-        IMPORTANT: Always pass the entire state object to each tool. The tools will extract the needed fields.
-        
-        For check_candidate_exists, make sure the state contains at least the email field.
-        For create_candidate, make sure the state contains name, email, phone, applied_role, and skills.
-        For create_report, make sure the state contains candidate_id.
-        For store_interview_scores, make sure the state contains report_id and scores.
-        For store_conversation_history, make sure the state contains report_id and conversation_history.
-
-        The state MUST be modified between steps to add the necessary fields for the next step.
-
-        {tools}{tool_names}
+        IMPORTANT: 
+        - Always use the state returned from the previous tool for the next operation
+        - Make sure to pass the entire state object as a dictionary, not as a string
+        - When a tool returns a new state, use that state for the next action
 
         Format your response as:
         Thought: analyze the current state and decide next action
         Action: the tool to use
-        Action Input: the entire state object or a modified state with required fields
+        Action Input: the state dictionary
         Observation: the result from the tool
         ... (repeat until all data is stored)
         Final Answer: summary of all operations performed
@@ -282,15 +286,6 @@ def start_db_agent(state: State):
         return {"status": "error", "message": "API error occurred. Report not stored in the database."}
 
     try:
-        # Make sure state is a dictionary before passing it to the agent
-        if isinstance(state, str):
-            try:
-                state = json.loads(state)
-            except json.JSONDecodeError:
-                try:
-                    state = ast.literal_eval(state)
-                except (ValueError, SyntaxError):
-                    return {"status": "error", "message": "Invalid state format"}
         
         result = agent.invoke({"input": state})
         print("\nDatabase operations completed successfully.")

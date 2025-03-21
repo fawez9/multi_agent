@@ -1,12 +1,11 @@
 import time
-import traceback
 import candidate
 from core_rag import rag
 from langgraph.graph import StateGraph 
 from database_agent import start_db_agent
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
-from needs import State ,close_connection_pool
+from needs import State
 
 
 def start_interview(state: State):
