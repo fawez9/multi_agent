@@ -70,6 +70,7 @@ def evaluate_response(state: dict) -> dict:
             Evaluate this response concisely based on the knowledge base and these provided infos:
             Question: {score['question']}
             Response: {score['response']}
+            Conversation History: {conversation_history}
             Give a score (0-10) and a short justification (1-2 sentences).
             """
         
@@ -87,6 +88,7 @@ def evaluate_response(state: dict) -> dict:
         state.update({
             'scores': scores,
             'conversation_history': conversation_history,
+            'status': 'Evaluation Complete'
         })
         return state
     except Exception as e:
@@ -104,10 +106,9 @@ def create_evaluation_agent():
 
         Available tools: {tools}{tool_names}
 
-        Process:
-        1. Check if there are any unevaluated responses in the scores list
-        2. Use evaluate_response to score each response
-        3. Stop when all responses have been evaluated
+        steps:
+        1. Use evaluate_response to evaluate each response in the scores.
+        2. If the status is 'Evaluation Complete', stop immediately.
 
         Format your responses as:
         Thought: I will analyze the current state and determine next action
@@ -117,11 +118,7 @@ def create_evaluation_agent():
         
         Rules:
         - Always pass the complete state dictionary in Action Input
-        - Only use the evaluate_response tool
-        - Stop when all responses have evaluations
         - Do not modify the status field
-
-        Final Answer: Summarize the evaluations completed
         """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
@@ -129,7 +126,7 @@ def create_evaluation_agent():
     
 
     agent = create_react_agent(llm=llm, prompt=prompt, tools=tools)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True, handle_parsing_errors=True,max_iterations=2)
 
 agent = create_evaluation_agent()
 
@@ -138,51 +135,31 @@ def start_evaluation_agent(state: State):
     print("Starting concise evaluation")
     
     # Create a proper copy of the state
-    working_state = state.copy() if hasattr(state, 'copy') else state.copy() if isinstance(state, dict) else state
-    
+    working_state = state.copy()
     try:   
         result = agent.invoke({
             "input": working_state
         })
         
-        time.sleep(2)
+        time.sleep(0.5)
         
-        # Extract the final state from the last observation if available
-        final_state = None
-        if result.get("intermediate_steps") and result["intermediate_steps"]:
-            final_step = result["intermediate_steps"][-1]
-            if isinstance(final_step[1], dict):
-                final_state = final_step[1]
-        
-        # If we have a valid final state, use it
-        if final_state and isinstance(final_state, dict):
-            if isinstance(working_state, dict):
-                working_state = final_state
-            else:
-                # Handle case where working_state is a State object
-                for key, value in final_state.items():
-                    setattr(working_state, key, value)
-        else:
-            # Otherwise update incrementally
+        # Update working state with all intermediate steps
+        if result.get("intermediate_steps"):
             for step in result["intermediate_steps"]:
                 if isinstance(step[1], dict):
-                    if isinstance(working_state, dict):
-                        working_state.update(step[1])
-                    else:
-                        # Handle case where working_state is a State object
-                        for key, value in step[1].items():
-                            setattr(working_state, key, value)
+                    working_state.update(step[1])
 
-        # Update the original state with all changes
-        if hasattr(state, 'update'):
+        # Update the original state
+        if isinstance(state, dict):
+            state.clear()
             state.update(working_state)
-        elif isinstance(state, dict) and isinstance(working_state, dict):
-            state.update(working_state)
+        else:
+            for key, value in working_state.items():
+                setattr(state, key, value)
         
         return working_state
     except Exception as e:
         print(f"Agent processing failed: {str(e)}")
-        traceback.print_exc()
         return {"status": "Error", "error": str(e)}
 
 if __name__ == "__main__":

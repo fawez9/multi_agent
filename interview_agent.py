@@ -2,7 +2,7 @@ import ast
 import json
 import time
 import traceback
-from typing import TypedDict, Callable
+from typing import Callable
 from functools import wraps
 from pydantic import BaseModel, Field, field_validator
 from langchain_core.tools import tool
@@ -120,7 +120,7 @@ def collect_response(state: dict) -> dict:
             ]
             
             check = llm.invoke(messages)
-            time.sleep(0.5)
+            time.sleep(1)
             
             if 'no' in check.content.lower():
                 state['_internal_flags'].update({
@@ -180,7 +180,7 @@ def refine_question(state: dict) -> dict:
         ]
         
         refined = llm.invoke(messages)
-        time.sleep(0.5)
+        time.sleep(1)
         
         refined_question = refined.content.strip()
         refinement_event = {
@@ -207,8 +207,8 @@ def create_interview_agent(llm):
          You are an interviewer conducting an interview with a candidate. Follow these steps precisely:
 
         Steps:
-        1. First, check the interview plan status using check_interview_plan
-        2. If the plan is complete, stop immediately
+        1. First, check the interview plan status using check_interview_plan 
+        2.If the status is 'Plan Complete', stop immediately.
         3. If the plan is incomplete:
            - Use present_question to show the next question
            - Use collect_response to get the candidate's answer
@@ -236,7 +236,7 @@ def create_interview_agent(llm):
         verbose=True,
         return_intermediate_steps=True,
         handle_parsing_errors=True,
-        max_iterations=10
+        max_iterations=5
     )
 
 agent = create_interview_agent(llm)
@@ -252,7 +252,7 @@ def start_interview_agent(state: State):
         # Pass the cleaned state to the agent
         result = agent.invoke({"input": working_state})
         
-        time.sleep(0.5)
+        time.sleep(1)
         
         # Update working state with all intermediate steps
         if result.get("intermediate_steps"):

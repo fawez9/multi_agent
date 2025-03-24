@@ -22,19 +22,19 @@ from config import config
 class State(TypedDict):
     """State of the interview"""
     messages: List[str]
+    name: str
+    phone: str
+    email: str
     applied_role: str
     skills: List[str]
-    name: str
     plan: List[str]
-    scores: Annotated[List[Dict[str, str]], "List of scores"]
     status: str
     current_question: str
     response: str
-    technical_score: Annotated[str, "Technical score"]
+    scores: Annotated[List[Dict[str, str]], "List of scores"]
     report: str
-    email: str
-    phone: str
     conversation_history: Annotated[List[Dict[str, str]], "List of conversation history"]
+    _internal_flags: Dict[str, bool]
 
 # Database configuration
 db_config = config()

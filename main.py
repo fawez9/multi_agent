@@ -12,14 +12,18 @@ def start_interview(state: State):
     """Initialize interview state."""
     return {
         'messages': [],
-        'current_question': '',
-        'response': '',
-        'technical_score': '',
-        'report': '',
-        'scores': [],
         'plan': [],
         'status': 'Plan Incomplete',
-        'conversation_history': []
+        'current_question': '',
+        'response': '',
+        '_internal_flags': {
+            'needs_refinement': False,
+            'question_answered': False,
+            'question_refined': False
+        },
+        'scores': [],
+        'report': '',
+        'conversation_history': [],
     }
 
 def initialize_candidate_info(state: State):
@@ -113,25 +117,10 @@ workflow.set_entry_point("start")
 workflow.add_edge("start", "init")
 workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
-
-# Add conditional edges based on the interview status
-# Update the conditional edges in the main script (paste-2.txt)
-workflow.add_conditional_edges(
-    "interview_agent",
-    lambda s: (
-        "evaluation_agent" if s.get('ready_for_eval', False) else # NOTE: I changed this flag after a certain bug with looping and not entering to evaluation
-        "gen_report" if s.get('status') == 'Plan Complete' else 
-        "end"  # This will loop back to interview_agent if neither condition is met
-    ),
-    {
-        "evaluation_agent": "evaluation_agent",  # When ready_for_eval is True
-        "gen_report": "gen_report",  # When all questions are done
-        "end": "end"  # Continue interviewing
-    }
-)
-workflow.add_edge("evaluation_agent", "interview_agent")
-workflow.add_edge("gen_report", "database_agent")
-workflow.add_edge("database_agent", "end")
+workflow.add_edge("interview_agent", "evaluation_agent")
+workflow.add_edge("evaluation_agent","gen_report")
+workflow.add_edge("gen_report", "end")
+# workflow.add_edge("database_agent", "end")
 workflow.set_finish_point("end")
 
 
