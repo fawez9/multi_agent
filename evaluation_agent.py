@@ -126,7 +126,7 @@ def create_evaluation_agent():
     
 
     agent = create_react_agent(llm=llm, prompt=prompt, tools=tools)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True, handle_parsing_errors=True,max_iterations=2)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True, handle_parsing_errors=True,max_iterations=1)
 
 agent = create_evaluation_agent()
 

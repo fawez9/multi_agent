@@ -235,8 +235,7 @@ def create_interview_agent(llm):
         tools=tools,
         verbose=True,
         return_intermediate_steps=True,
-        handle_parsing_errors=True,
-        max_iterations=5
+        handle_parsing_errors=True
     )
 
 agent = create_interview_agent(llm)

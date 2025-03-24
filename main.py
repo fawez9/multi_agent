@@ -44,9 +44,9 @@ def generate_interview_plan(state: State):
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 1 interview question for the role of {role} make them as short as possible.
+        Based on the job offer and candidate profile, generate 3 interview questions for the role of {role} make them as short as possible.
         Focus on the following skills: {skills}.
-        Format each question as a numbered item:
+        Format each question as a numbered item.
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
         time.sleep(2)
@@ -54,7 +54,7 @@ def generate_interview_plan(state: State):
         questions = []
         for line in response.split('\n'):
             line = line.strip()
-            if line and any(line.startswith(f"{i}.") for i in range(1, 3)):  # Check if line starts with a number
+            if line and any(line.startswith(f"{i}.") for i in range(1, 4)):  #TODO : handle questions
                 questions.append(line.strip())
     except Exception as e:
         print(f"API Error: {str(e)}")
