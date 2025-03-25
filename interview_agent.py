@@ -2,366 +2,272 @@ import ast
 import json
 import time
 import traceback
+from typing import Callable
+from functools import wraps
 from pydantic import BaseModel, Field, field_validator
-
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from needs import llm, State
-
 class StateParam(BaseModel):
     """Pydantic model for the state parameter."""
     state: dict = Field(..., description="The current interview state")
-    @field_validator('state', mode='before')
-    @classmethod
+
+    @field_validator("state", mode="before")
     def parse_state(cls, value):
-        if isinstance(value, dict):
-            return value
         if isinstance(value, str):
             try:
-                return ast.literal_eval(value)
-            except (ValueError, SyntaxError):
+                return ast.literal_eval(value)  # Convert string to dict
+            except:
                 try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    pass
-        raise ValueError(f"Input should be a valid dictionary")
+                    return json.loads(value.replace("'", "\""))
+                except:
+                    raise ValueError(f"Cannot parse state: {value}")
+        return value  # If already a dict, return as is
+
+def handle_state_conversion(func: Callable) -> Callable:
+    """Decorator to handle state conversion for tools."""
+    @wraps(func)
+    def wrapper(state: dict | str | StateParam, *args, **kwargs) -> dict:
+        try:
+            # Handle string input
+            if isinstance(state, str):
+                state_param = StateParam(state=state)
+                converted_state = state_param.state
+            # Handle dict input wrapped in StateParam
+            elif isinstance(state, StateParam):
+                converted_state = state.state
+            # Handle direct dict input
+            elif isinstance(state, dict):
+                converted_state = state
+            else:
+                raise ValueError(f"Unexpected state type: {type(state)}")
+            
+            return func(converted_state, *args, **kwargs)
+        except Exception as e:
+            print(f"Error in {func.__name__}: {str(e)}")
+            traceback.print_exc()
+            return {'status': 'Error', 'error': str(e)}
+    return wrapper
+
 
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def check_interview_plan(state: dict) -> dict:
     """Checks the status of the interview plan."""
-    try:
-        # Ensure state is a dictionary
-        if isinstance(state, str):
-            state = ast.literal_eval(state)
-        plan = state.get("plan", [])
-        if not plan:
-            return {'status': 'Plan Complete'}
-        return {'status': 'Plan Incomplete'}
-    except Exception as e:
-        print(f"Error in check_interview_plan: {str(e)}")
-        return {'status': 'Error'}
+    plan = state.get("plan", [])
+    if not plan:
+        state.update({'status': 'Plan Complete'})
+    else:
+        state.update({'status': 'Plan Incomplete'})
+    return state
 
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def present_question(state: dict) -> dict:
     """Presents the next question in the interview plan."""
-    try:
-        # Ensure state is a dictionary
-        if isinstance(state, str):
-            state = ast.literal_eval(state)
+
+    state['conversation_history'] = state.get('conversation_history', [])
+    plan = state.get("plan", [])
+    
+    # Check if plan is empty
+    if not plan:
+        state.update({'status': 'Plan Complete'})
+        return state
         
-        # Initialize internal flags if not present
-        internal_flags = state.get('_internal_flags', {})
-        
-        conversation_history = state.get('conversation_history', [])
-        plan = state.get("plan", [])
-        
-        if not plan:
-            return {
-                'status': 'Plan Complete', 
-                'conversation_history': conversation_history,
-                '_internal_flags': internal_flags
-            }
-            
-        current_question = plan[0]
-        
-        # Track the question presentation
-        question_event = {
-            'event_type': 'present_question',
-            'question': current_question,
-            'is_refined': internal_flags.get('question_refined', False),
-        }
-        conversation_history.append(question_event)
-        
-        print(f"\nQ: {current_question}")
-        
-        # Update internal flags
-        internal_flags['needs_refinement'] = False
-        
-        return {
-            'current_question': current_question,
-            'conversation_history': conversation_history,
-            '_internal_flags': internal_flags
-        }
-    except Exception as e:
-        print(f"Error in present_question: {str(e)}")
-        traceback.print_exc()
-        return {'status': 'Error'}
+    current_question = plan[0]
+    
+    # Track the question presentation
+    question_event = {
+        'event_type': 'present_question',
+        'question': current_question,
+        'is_refined': state['_internal_flags'].get('question_refined', False),
+    }
+    state['conversation_history'].append(question_event)
+    
+    print(f"\nQ: {current_question}") #TODO: Replace with speech synthesis (TTS: text-to-speech)
+    
+    state.update({
+        'current_question': current_question,
+    })
+    
+    return state
 
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def collect_response(state: dict) -> dict:
     """Collects the candidate's response to the current question."""
-    try:
-        # Ensure state is a dictionary
-        if isinstance(state, str):
-            state = ast.literal_eval(state)
-        
-        # Get internal flags
-        internal_flags = state.get('_internal_flags', {})
-            
-        conversation_history = state.get('conversation_history', [])
-        
-        if state.get("current_question"):
-            response = input("\nYour answer: ")
-            
-            # Track conversation history
-            conversation_event = {
-                'event_type': 'collect_response',
-                'response': response
-            }
-            
-            conversation_history.append(conversation_event)
-            
-            if not internal_flags.get('question_refined'):
-                # Create proper message format for LLM
-                messages = [
-                    SystemMessage(content="You are evaluating whether a candidate understood an interview question based on their response. Answer with ONLY 'yes' or 'no'."),
-                    HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'? The answer is very short.")
-                ]
-                
-                check = llm.invoke(messages)
-                time.sleep(1)
-                
-                if 'no' in check.content.lower():
-                    internal_flags['needs_refinement'] = True
-                    internal_flags['question_answered'] = False
-                    return {
-                        'response': response,
-                        'conversation_history': conversation_history,
-                        '_internal_flags': internal_flags,
-                        'ready_for_eval': False  # Explicitly set to False
-                    }
-        
-            # If we don't need refinement, proceed normally
-            plan = state.get("plan", [])
-            
-            # Only remove the question from the plan if we're not going to refine it
-            if not internal_flags.get('needs_refinement', False):
-                if plan:  # Check if plan is not empty
-                    plan.pop(0)
-                internal_flags['question_answered'] = True
-                
-            # Create the response object
-            result = {
-                'response': response,
-                'plan': plan,
-                'conversation_history': conversation_history,
-                '_internal_flags': internal_flags,
-            }
-            
-            # Explicitly set ready_for_eval based on question_answered
-            result['ready_for_eval'] = internal_flags['question_answered']
-            
-            # Debug print
-            print(f"DEBUG: Setting ready_for_eval to {result['ready_for_eval']}")
-            
-            return result
-        
-        return {
-            'response': '', 
-            'conversation_history': conversation_history,
-            '_internal_flags': internal_flags,
-            'ready_for_eval': False  # Explicitly set to False
-        }
-    except Exception as e:
-        print(f"Error in collect_response: {str(e)}")
-        traceback.print_exc()
-        return {'status': 'Error'}
+    state['_internal_flags'] = state.get('_internal_flags', {})
+    state['conversation_history'] = state.get('conversation_history', [])
+    state['plan'] = state.get('plan', [])
+    state['scores'] = state.get('scores',[])
     
-@tool(args_schema=StateParam)
-def refine_question(state: dict) -> dict:
-    """Refines the current question to make it clearer for the candidate."""
-    try:
-        # Ensure state is a dictionary
-        if isinstance(state, str):
-            state = ast.literal_eval(state)
+    if state.get("current_question"):
+        response = input("\nYour answer: ") #TODO: Replace with speech recognition
         
-        # Get internal flags
-        internal_flags = state.get('_internal_flags', {})
+        conversation_event = {
+            'event_type': 'collect_response',
+            'response': response
+        }
+        state['conversation_history'].append(conversation_event)
         
-        conversation_history = state.get('conversation_history', [])
-        
-        if internal_flags.get('needs_refinement', False):
-            # Track the refinement attempt
-            refinement_event = {
-                'event_type': 'refine_question',
-                'original_question': state.get('current_question', '')
-            }
-            
-            # Create proper message format for LLM
+        if not state['_internal_flags'].get('question_refined'):
             messages = [
-                SystemMessage(content="""
-                You are helping to refine an interview question that the candidate didn't understand.
-                Please rewrite the question to make it clearer and more specific.
-                Keep the refined question concise but add context or examples if helpful.
-                Maintain the same topic and difficulty level.
-                """),
-                HumanMessage(content=f"""
-                Original question: {state.get('current_question', '')}
-                Candidate's response: {state.get('response', '')}
-                
-                Please provide a refined version of this question.
-                """)
+                SystemMessage(content="You are evaluating whether a candidate understood an interview question based on their response. Answer with ONLY 'yes' or 'no'."),
+                HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'?")
             ]
             
-            refined = llm.invoke(messages)
+            check = llm.invoke(messages)
             time.sleep(1)
             
-            refined_question = refined.content.strip()
-            refinement_event['refined_question'] = refined_question
-            conversation_history.append(refinement_event)
+            if 'no' in check.content.lower():
+                state['_internal_flags'].update({
+                    'needs_refinement': True,
+                    'question_answered': False
+                })
+                state.update({
+                    'response': response
+                })
+                return state
+    
+        if not state['_internal_flags'].get('needs_refinement', False):
+            if state['plan']:
+                state['plan'].pop(0)
+            state['_internal_flags']['question_answered'] = True
             
-            plan = state.get("plan", [])
-            if plan:  # Check if plan is not empty
-                plan[0] = refined_question
-            
-            # Update internal flags
-            internal_flags['needs_refinement'] = False
-            internal_flags['question_refined'] = True
-            
-            return {
-                'plan': plan,
-                'conversation_history': conversation_history,
-                '_internal_flags': internal_flags
-            }
-        
-        # If we don't need refinement, just return the current state
-        return {
-            'current_question': state.get('current_question', ''),
-            'conversation_history': conversation_history,
-            '_internal_flags': internal_flags
+        scores={
+            'question': state.get('current_question', ''),
+            'response': response, #TODO: make this a list to store even the responses before the refinement
+            'evaluation': ''
         }
-    except Exception as e:
-        print(f"Error in refine_question: {str(e)}")
-        traceback.print_exc()
-        return {'status': 'Error'}
+        state['scores'].append(scores)
+        state.update({
+            'current_question': '',
+            'response': ''
+        })
+        
+        return state
+    
+    state.update({
+        'response': ''
+        })
+    return state
+
+@tool(args_schema=StateParam)
+@handle_state_conversion
+def refine_question(state: dict) -> dict:
+    """Refines the current question to make it clearer for the candidate."""
+    state['_internal_flags'] = state.get('_internal_flags', {})
+    state['conversation_history'] = state.get('conversation_history', [])
+    state['plan'] = state.get('plan',[])
+    
+    if state['_internal_flags'].get('needs_refinement', False):
+        messages = [
+            SystemMessage(content="""
+            You are helping to refine an interview question that the candidate didn't understand.
+            Please rewrite the question to make it clearer and more specific.
+            Keep the refined question concise but add context or examples if helpful.
+            Maintain the same topic and difficulty level.
+            """),
+            HumanMessage(content=f"""
+            Original question: {state.get('current_question', '')}
+            Candidate's response: {state.get('response', '')}
+            
+            Please provide only the refined question without any additional text.
+            """)
+        ]
+        
+        refined = llm.invoke(messages)
+        time.sleep(1)
+        
+        refined_question = refined.content.strip()
+        refinement_event = {
+            'event_type': 'refine_question',
+            'refined_question': refined_question
+        }
+        state['conversation_history'].append(refinement_event)
+        
+        if state['plan']:
+            state['plan'][0] = refined_question
+        
+        state['_internal_flags'].update({
+            'needs_refinement': False,
+            'question_refined': True
+        })
+    
+    return state
 
 def create_interview_agent(llm):
     """Creates an agent that conducts the interview."""
     tools = [check_interview_plan, present_question, collect_response, refine_question]
     prompt = ChatPromptTemplate.from_messages([
         ("system", """
-         You are an interviewer conducting an interview with a candidate. Use the following tools to manage the process:  
+         You are an interviewer conducting an interview with a candidate. Follow these steps precisely:
 
-        {tools}  
+        Steps:
+        1. First, check the interview plan status using check_interview_plan 
+        2.If the status is 'Plan Complete', stop immediately.
+        3. If the plan is incomplete:
+           - Use present_question to show the next question
+           - Use collect_response to get the candidate's answer
+           - If the response needs refinement, use refine_question and repeat from step 3
+        
+        Available tools:
+        {tools}{tool_names}
 
-        ### **Format:**  
-        State: (current state as Python dictionary)  
-        Thought: (analyze state and tool outputs to decide the next action)  
-        Action: (the action to take, must be one of [{tool_names}])  
-        Action Input: (the input to the action)  
-        Observation: (result from the tool, updates the state)  
-        Thought: (reevaluate the next step based on observations)
-         ... (repeat until termination)   
-        Final Answer: (final action when the interview process reaches completion)  
-
-        ### **Critical Rules:**  
-        I. **Always start by using `check_interview_plan` tool** to decide termination conditions (status 'Plan Complete' or plan is empty).
+        Format your responses exactly like this:
+        Thought: I will [explain your next action]
+        Action: [tool name]
+        Action Input: {{[complete current state]}}
+        Observation: [tool result]
         
-        II. **Always pass the COMPLETE state when using any tool.** This ensures all context is preserved.
-        
-        
-        III. **Follow this exact sequence for conducting the interview:**
-           1. Present question to the candidate
-           2. Collect their response
-           3. Check the _internal_flags['needs_refinement'] flag:
-              a. If true, use refine_question tool to make the question clearer
-              b. Present the refined question
-              c. Collect their response again
-           4. If the response is understood (_internal_flags['question_answered'] is true), check:
-              a. If 'ready_for_eval' is true, STOP and return the state for evaluation
-        
-        IV. **Check the internal flags in the _internal_flags dictionary**. These track the interview process.
-        
-        V. **If you see 'ready_for_eval' is true in the state, STOP IMMEDIATELY and return the current state for evaluation.**
-        
-        VI. **Never modify the state directly.** Tools will update it automatically.
-         
+        Always include the COMPLETE state in Action Input.
         """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
     ])
+    
     agent = create_react_agent(llm, tools, prompt)
     return AgentExecutor(
         agent=agent,
         tools=tools,
         verbose=True,
         return_intermediate_steps=True,
-        handle_parsing_errors=True,
-        )
+        handle_parsing_errors=True
+    )
 
 agent = create_interview_agent(llm)
 
 def start_interview_agent(state: State):
-    """Manages the interview process."""
-    # Create a proper deep copy of the state to ensure we preserve all fields
-    working_state = state.copy()
-    
-    # Initialize the internal flags dictionary if not present
-    if '_internal_flags' not in working_state:
-        working_state['_internal_flags'] = {
-            'needs_refinement': False,
-            'question_refined': False,
-            'question_answered': False,
-        }
-    
-    # Check if coming back from evaluation
-    if working_state.get('technical_score'):
-        print("DEBUG: Coming back from evaluation, resetting flags")
-        # Reset the ready_for_eval flag
-        working_state['ready_for_eval'] = False
-        # Reset the technical_score since we've now processed it
-        working_state['technical_score'] = ''
-        # Reset internal flags
-        working_state['_internal_flags']['question_answered'] = False
-        working_state['_internal_flags']['question_refined'] = False
-    
-    # Debug the state
-    """ print(f"\nDEBUG: Current state keys: {working_state.keys()}")
-    print(f"DEBUG: ready_for_eval = {working_state.get('ready_for_eval', False)}")
-    print(f"DEBUG: status = {working_state.get('status', 'Unknown')}")
-    print(f"DEBUG: plan = {working_state.get('plan', [])}") """
-    
+    """Starts the interview agent."""
     try:
-        print(f"\Starting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
+        working_state=state.copy()
         
-        # Debug internal flags
-        internal_flags = working_state.get('_internal_flags', {})
-        """ debug_flags = f"BEFORE: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
-        print(f"DEBUG: {debug_flags}")
-         """
-        # Run through the steps
-        result = agent.invoke({
-            "input": working_state
-        })
+        print(f"\nStarting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
         
-        time.sleep(2)
+        
+        # Pass the cleaned state to the agent
+        result = agent.invoke({"input": working_state})
+        
+        time.sleep(1)
         
         # Update working state with all intermediate steps
-        for step in result["intermediate_steps"]:
-            if isinstance(step[1], dict):
-                working_state.update(step[1])
-        
-        # Debug internal flags after processing
-        internal_flags = working_state.get('_internal_flags', {})
-        """ debug_flags = f"AFTER: needs_refinement={internal_flags.get('needs_refinement', False)}, question_refined={internal_flags.get('question_refined', False)}, question_answered={internal_flags.get('question_answered', False)}"
-        print(f"DEBUG: {debug_flags}")
-        print(f"DEBUG: ready_for_eval = {working_state.get('ready_for_eval', False)}") """
+        if result.get("intermediate_steps"):
+            for step in result["intermediate_steps"]:
+                if isinstance(step[1], dict):
+                    working_state.update(step[1])
         
         # Force the status update based on the plan
         if 'plan' in working_state and not working_state.get('plan'):
             working_state['status'] = 'Plan Complete'
         
-        # Update the original state with all changes
-        if hasattr(state, 'update'):
-            state.update(working_state)
-        elif isinstance(state, dict):
+        # Update the original state
+        if isinstance(state, dict):
             state.clear()
             state.update(working_state)
         else:
-            # Handle State object
             for key, value in working_state.items():
                 setattr(state, key, value)
         
@@ -369,8 +275,7 @@ def start_interview_agent(state: State):
         
     except Exception as e:
         print(f"Error in start_interview_agent: {str(e)}")
-        traceback.print_exc()
-        return {"status": "Error", "error": str(e)}
+        return {"status": "Error"}
 
 if __name__ == "__main__":
     test_state = {
@@ -380,9 +285,11 @@ if __name__ == "__main__":
         'current_question': '',
         'response': '',
         'status': 'Plan Incomplete',
-        'needs_refinement': False,
-        'question_refined': False,
-        'question_answered': False,
+        '_internal_flags': {
+            'needs_refinement': False,
+            'question_answered': False,
+            'question_refined': False
+        },
         'conversation_history': []
     }
     result = start_interview_agent(test_state)

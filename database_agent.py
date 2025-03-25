@@ -1,90 +1,104 @@
 import ast
+from functools import wraps
 import json
 import time
 import traceback
+from typing import Callable
 from pydantic import BaseModel, Field, field_validator
 
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 
-from needs import llm, connection_pool, State
+from needs import close_connection_pool, llm, connection_pool, State
 
 class StateParam(BaseModel):
     """Pydantic model for the state parameter."""
     state: dict = Field(..., description="The current interview state")
-    @field_validator('state', mode='before')
-    @classmethod
+
+    @field_validator("state", mode="before")
     def parse_state(cls, value):
-        if isinstance(value, dict):
-            return value
         if isinstance(value, str):
             try:
-                return ast.literal_eval(value)
-            except (ValueError, SyntaxError):
+                return ast.literal_eval(value)  # Convert string to dict
+            except:
                 try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    pass
-        raise ValueError(f"Input should be a valid dictionary")
+                    return json.loads(value.replace("'", "\""))
+                except:
+                    raise ValueError(f"Cannot parse state: {value}")
+        return value  # If already a dict, return as is
+
+def handle_state_conversion(func: Callable) -> Callable:
+    """Decorator to handle state conversion for tools."""
+    @wraps(func)
+    def wrapper(state: dict | str | StateParam, *args, **kwargs) -> dict:
+        try:
+            # Handle string input
+            if isinstance(state, str):
+                state_param = StateParam(state=state)
+                converted_state = state_param.state
+            # Handle dict input wrapped in StateParam
+            elif isinstance(state, StateParam):
+                converted_state = state.state
+            # Handle direct dict input
+            elif isinstance(state, dict):
+                converted_state = state
+            else:
+                raise ValueError(f"Unexpected state type: {type(state)}")
+            
+            return func(converted_state, *args, **kwargs)
+        except Exception as e:
+            print(f"Error in {func.__name__}: {str(e)}")
+            traceback.print_exc()
+            return {'status': 'Error', 'error': str(e)}
+    return wrapper
+
 
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def check_candidate_exists(state: dict) -> dict:
     """Check if a candidate exists in the database."""
-    # Make sure state is a dictionary
-    if isinstance(state, str):
-        try:
-            state = json.loads(state)
-        except json.JSONDecodeError:
-            try:
-                state = ast.literal_eval(state)
-            except (ValueError, SyntaxError):
-                return {"error": "Invalid state format"}
-    
-    name = state.get('name')
-    email = state.get('email')
-    
-    if not name or not email:
-        return {"error": "Name and email are required"}
     
     conn = connection_pool.getconn()
     cursor = conn.cursor()
     try:
+        name = state.get('name')
+        email = state.get('email')
+        if not name or not email:
+            return {"error": "Name and email are required"}
         cursor.execute("""
             SELECT id FROM candidates
             WHERE name = %s AND email = %s;
         """, (name, email))
         result = cursor.fetchone()
-        return {"exists": bool(result), "id": result[0] if result else None}
+        
+        if result:
+            return {"exists": True, "id": result[0]}
+        return {"exists": False}
+    except Exception as e:
+        print(f"Error at check_candidate_exists: {str(e)}")
+        return {"error": str(e)}
     finally:
         cursor.close()
         connection_pool.putconn(conn)
 
+#NOTE: verify this with your supervisor creating candidate shouldn't be a tool here it's better be at the signup
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def create_candidate(state: dict) -> dict:
     """Create a new candidate in the database."""
-    # Make sure state is a dictionary
-    if isinstance(state, str):
-        try:
-            state = json.loads(state)
-        except json.JSONDecodeError:
-            try:
-                state = ast.literal_eval(state)
-            except (ValueError, SyntaxError):
-                return {"error": "Invalid state format"}
-    
-    name = state.get('name')
-    email = state.get('email')
-    phone = state.get('phone')
-    role = state.get('applied_role')  # Note: Using 'applied_role' to match original function
-    skills = state.get('skills')
-    
-    if not name or not email:
-        return {"error": "Name and email are required"}
     
     conn = connection_pool.getconn()
     cursor = conn.cursor()
     try:
+        name = state.get('name')
+        email = state.get('email')
+        phone = state.get('phone')
+        role = state.get('applied_role')  # Note: Using 'applied_role' to match original function
+        skills = state.get('skills')
+        
+        if not name or not email:
+            return {"error": "Name and email are required"}
         # Make sure the column names match your table structure
         cursor.execute("""
             INSERT INTO candidates (name, email, phone, role, skills)
@@ -96,32 +110,24 @@ def create_candidate(state: dict) -> dict:
         return {"id": candidate_id}
     except Exception as e:
         conn.rollback()
+        print(f"Error at create_candidate: {str(e)}")
         return {"error": str(e)}
     finally:
         cursor.close()
         connection_pool.putconn(conn)
 
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def create_report(state: dict) -> dict:
     """Create a new report for a candidate."""
-    # Make sure state is a dictionary
-    if isinstance(state, str):
-        try:
-            state = json.loads(state)
-        except json.JSONDecodeError:
-            try:
-                state = ast.literal_eval(state)
-            except (ValueError, SyntaxError):
-                return {"error": "Invalid state format"}
-    
-    candidate_id = state.get('candidate_id')
-    
-    if not candidate_id:
-        return {"error": "Candidate ID is required"}
     
     conn = connection_pool.getconn()
     cursor = conn.cursor()
     try:
+        candidate_id = state.get('id')
+        
+        if not candidate_id:
+            return {"error": "Candidate ID is required"}
         cursor.execute("""
             INSERT INTO reports (candidate_id)
             VALUES (%s)
@@ -129,36 +135,29 @@ def create_report(state: dict) -> dict:
         """, (candidate_id,))
         report_id = cursor.fetchone()[0]
         conn.commit()
+        
         return {"report_id": report_id}
     except Exception as e:
         conn.rollback()
+        print(f"Error at create_report: {str(e)}")
         return {"error": str(e)}
     finally:
         cursor.close()
         connection_pool.putconn(conn)
 
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def store_interview_scores(state: dict) -> dict:
     """Store interview scores in the database."""
-    # Make sure state is a dictionary
-    if isinstance(state, str):
-        try:
-            state = json.loads(state)
-        except json.JSONDecodeError:
-            try:
-                state = ast.literal_eval(state)
-            except (ValueError, SyntaxError):
-                return {"error": "Invalid state format"}
-    
-    report_id = state.get('report_id')
-    scores = state.get('scores', [])
-    
-    if not report_id:
-        return {"error": "Report ID is required"}
     
     conn = connection_pool.getconn()
     cursor = conn.cursor()
     try:
+        report_id = state.get('report_id')
+        scores = state.get('scores', [])
+        
+        if not report_id:
+            return {"error": "Report ID is required"}
         for score in scores:
             cursor.execute("""
                 INSERT INTO interview_scores (report_id, question, response, evaluation)
@@ -170,36 +169,29 @@ def store_interview_scores(state: dict) -> dict:
                 score.get('evaluation')
             ))
         conn.commit()
-        return {"status": "success", "scores_stored": len(scores)}
+        return
     except Exception as e:
         conn.rollback()
+        print(f"Error at store_interview_scores: {str(e)}")
         return {"error": str(e)}
     finally:
         cursor.close()
         connection_pool.putconn(conn)
 
 @tool(args_schema=StateParam)
+@handle_state_conversion
 def store_conversation_history(state: dict) -> dict:
     """Store conversation history in the database."""
-    # Make sure state is a dictionary
-    if isinstance(state, str):
-        try:
-            state = json.loads(state)
-        except json.JSONDecodeError:
-            try:
-                state = ast.literal_eval(state)
-            except (ValueError, SyntaxError):
-                return {"error": "Invalid state format"}
     
-    report_id = state.get('report_id')
-    history = state.get('conversation_history', [])
-    
-    if not report_id:
-        return {"error": "Report ID is required"}
     
     conn = connection_pool.getconn()
     cursor = conn.cursor()
     try:
+        report_id = state.get('report_id')
+        history = state.get('conversation_history', [])
+        
+        if not report_id:
+            return {"error": "Report ID is required"}
         for event in history:
             event_data = json.dumps(event)
             cursor.execute("""
@@ -212,9 +204,10 @@ def store_conversation_history(state: dict) -> dict:
                 event.get('timestamp', time.time())
             ))
         conn.commit()
-        return {"status": "success", "events_stored": len(history)}
+        return
     except Exception as e:
         conn.rollback()
+        print(f"Error at store_conversation_history: {str(e)}")
         return {"error": str(e)}
     finally:
         cursor.close()
@@ -234,30 +227,24 @@ def create_db_agent():
         ("system", """
         You are a database operations agent responsible for storing interview data.
         Follow these steps precisely:
+         {tools}{tool_names}
 
         1. Check if candidate exists using check_candidate_exists tool with the email from the state
-        2. If exists, use the returned candidate ID for the next steps
+        2. If exists, use the returned state (which includes candidate_id) for the next steps
         3. If not exists, create candidate using create_candidate tool with the full state
-        4. Create a new report using create_report tool with the candidate ID
+        4. Create a new report using create_report tool with the state containing candidate_id
         5. Store interview scores using store_interview_scores tool with the report ID and scores
         6. Store conversation history using store_conversation_history tool with the report ID and history
 
-        IMPORTANT: Always pass the entire state object to each tool. The tools will extract the needed fields.
-        
-        For check_candidate_exists, make sure the state contains at least the email field.
-        For create_candidate, make sure the state contains name, email, phone, applied_role, and skills.
-        For create_report, make sure the state contains candidate_id.
-        For store_interview_scores, make sure the state contains report_id and scores.
-        For store_conversation_history, make sure the state contains report_id and conversation_history.
-
-        The state MUST be modified between steps to add the necessary fields for the next step.
-
-        {tools}{tool_names}
+        IMPORTANT: 
+        - Always use the state returned from the previous tool for the next operation
+        - Make sure to pass the entire state object as a dictionary, not as a string
+        - When a tool returns a new state, use that state for the next action
 
         Format your response as:
         Thought: analyze the current state and decide next action
         Action: the tool to use
-        Action Input: the entire state object or a modified state with required fields
+        Action Input: the state dictionary
         Observation: the result from the tool
         ... (repeat until all data is stored)
         Final Answer: summary of all operations performed
@@ -279,26 +266,17 @@ def start_db_agent(state: State):
     """Main function to store interview data using the DB agent."""
     if state.get('plan') == ['API Error: Failed to generate questions']:
         print("API error occurred. Report not stored in the database.")
-        return {"status": "error", "message": "API error occurred. Report not stored in the database."}
+        return {"status": "Error"}
 
     try:
-        # Make sure state is a dictionary before passing it to the agent
-        if isinstance(state, str):
-            try:
-                state = json.loads(state)
-            except json.JSONDecodeError:
-                try:
-                    state = ast.literal_eval(state)
-                except (ValueError, SyntaxError):
-                    return {"status": "error", "message": "Invalid state format"}
         
-        result = agent.invoke({"input": state})
+        agent.invoke({"input": state})
         print("\nDatabase operations completed successfully.")
-        return result
+        close_connection_pool()
+        return 
     except Exception as e:
         print(f"Error in database operations: {e}")
-        traceback.print_exc()
-        return {"status": "error", "message": str(e)}
+        return {"status": "Error", "error": str(e)}
 
 if __name__ == "__main__":
     # Test data
@@ -323,12 +301,10 @@ if __name__ == "__main__":
         'conversation_history': [
             {
                 'event_type': 'question_asked',
-                'timestamp': time.time(),
                 'data': {'question': "What is your experience with Python?"}
             },
             {
                 'event_type': 'response_received',
-                'timestamp': time.time(),
                 'data': {'response': "I have 5 years of experience working with Python in production environments."}
             }
         ]
@@ -348,5 +324,4 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         print("\nClosing connection pool...")
-        connection_pool.closeall()
         print("Test completed.")

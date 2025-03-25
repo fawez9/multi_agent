@@ -1,26 +1,29 @@
 import time
-import traceback
 import candidate
 from core_rag import rag
 from langgraph.graph import StateGraph 
 from database_agent import start_db_agent
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
-from needs import State, connection_pool ,close_connection_pool
+from needs import State
 
 
 def start_interview(state: State):
     """Initialize interview state."""
     return {
         'messages': [],
-        'current_question': '',
-        'response': '',
-        'technical_score': '',
-        'report': '',
-        'scores': [],
         'plan': [],
         'status': 'Plan Incomplete',
-        'conversation_history': []
+        'current_question': '',
+        'response': '',
+        '_internal_flags': {
+            'needs_refinement': False,
+            'question_answered': False,
+            'question_refined': False
+        },
+        'scores': [],
+        'report': '',
+        'conversation_history': [],
     }
 
 def initialize_candidate_info(state: State):
@@ -41,9 +44,9 @@ def generate_interview_plan(state: State):
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 1 interview question for the role of {role} make them as short as possible.
+        Based on the job offer and candidate profile, generate 3 interview questions for the role of {role} make them as short as possible.
         Focus on the following skills: {skills}.
-        Format each question as a numbered item:
+        Format each question as a numbered item.
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
         time.sleep(2)
@@ -51,7 +54,7 @@ def generate_interview_plan(state: State):
         questions = []
         for line in response.split('\n'):
             line = line.strip()
-            if line and any(line.startswith(f"{i}.") for i in range(1, 3)):  # Check if line starts with a number
+            if line and any(line.startswith(f"{i}.") for i in range(1, 4)):  #TODO : handle questions
                 questions.append(line.strip())
     except Exception as e:
         print(f"API Error: {str(e)}")
@@ -88,7 +91,6 @@ Skills: {state['skills']}\n
 
 def end_interview(state: State):
     """Ends the interview and displays the final report."""
-    close_connection_pool()
     print("\n" + state['report'])
     print("\nInterview completed. Thank you!")
 
@@ -115,24 +117,10 @@ workflow.set_entry_point("start")
 workflow.add_edge("start", "init")
 workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
-
-# Add conditional edges based on the interview status
-# Update the conditional edges in the main script (paste-2.txt)
-workflow.add_conditional_edges(
-    "interview_agent",
-    lambda s: (
-        "evaluation_agent" if s.get('ready_for_eval', False) else 
-        "gen_report" if s.get('status') == 'Plan Complete' else 
-        "end"  # This will loop back to interview_agent if neither condition is met
-    ),
-    {
-        "evaluation_agent": "evaluation_agent",  # When ready_for_eval is True
-        "gen_report": "gen_report",  # When all questions are done
-        "end": "end"  # Continue interviewing
-    }
-)
-workflow.add_edge("evaluation_agent", "interview_agent")
+workflow.add_edge("interview_agent", "evaluation_agent")
+workflow.add_edge("evaluation_agent","gen_report")
 workflow.add_edge("gen_report", "database_agent")
+#BUG : the problem is to try this fully we need to delete the candidate and the candidate cant be deleted because there's a session related to it
 workflow.add_edge("database_agent", "end")
 workflow.set_finish_point("end")
 

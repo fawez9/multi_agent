@@ -22,19 +22,19 @@ from config import config
 class State(TypedDict):
     """State of the interview"""
     messages: List[str]
+    name: str
+    phone: str
+    email: str
     applied_role: str
     skills: List[str]
-    name: str
     plan: List[str]
-    scores: Annotated[List[Dict[str, str]], "List of scores"]
     status: str
     current_question: str
     response: str
-    technical_score: Annotated[str, "Technical score"]
+    scores: Annotated[List[Dict[str, str]], "List of scores"]
     report: str
-    email: str
-    phone: str
     conversation_history: Annotated[List[Dict[str, str]], "List of conversation history"]
+    _internal_flags: Dict[str, bool]
 
 # Database configuration
 db_config = config()
@@ -59,9 +59,9 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Initialize LLM components
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
+    model="gemini-2.0-flash",
     temperature=0
-)  # TODO: Change for better model  #NOTE: gemini-2.0-flash is bugging
+)  # TODO: Change for better model  #BUG: gemini-2.0-flash is bugging
 
 embeddings = GoogleGenerativeAIEmbeddings(
     model="models/text-embedding-004"

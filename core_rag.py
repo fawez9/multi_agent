@@ -91,6 +91,7 @@ class BaseRAG:
                 
                 # Create session if candidate_id is provided
                 session_id = None
+                #TODO : change candidate_id to be a generated and given later for him on signup (to know which session belongs to which candidate)
                 if candidate_id:
                     cursor.execute(
                         """
@@ -168,24 +169,8 @@ class BaseRAG:
 
 # Create single instance
 rag = BaseRAG() 
-rag.load_session(1) #TODO: change the behaviour of session ids
+# rag.process_document("/home/fawez/Downloads/HATTABI_FAWEZ_RES.pdf", candidate_id=1)
+rag.load_session(1) #TODO: change the behaviour of session ids for now i'm manually loading a specific session
 if __name__ == "__main__":
-    # Example usage
-    try:
-        # Process a new document
-        # result = rag.process_document("/home/fawez/Downloads/HATTABI_FAWEZ_RES.pdf", candidate_id=1)
-        # print(f"Created session: {result}")
-        # Test query
-        prompt = """Based on the candidate's resume, extract and return ONLY a JSON object (no markdown, no code blocks) with the following information:
-        {
-            "name": "What is the candidate's name?",
-            "applied_role": "What role is the candidate applying for?",
-            "skills": "What are the candidate's technical skills?",
-            "phone": "What is the candidate's phone?",
-            "email": "What is the candidate's email?"
-        }"""
-        response = rag.generate_response(prompt)
-        print(f"Response: {response}")
-        
-    except Exception as e:
-        print(f"Error in main: {e}")
+    response = rag.generate_response("What is the candidate's name?")
+    print(response)
