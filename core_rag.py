@@ -91,6 +91,7 @@ class BaseRAG:
                 
                 # Create session if candidate_id is provided
                 session_id = None
+                #TODO : change candidate_id to be a generated and given later for him on signup (to know which session belongs to which candidate)
                 if candidate_id:
                     cursor.execute(
                         """
@@ -169,7 +170,7 @@ class BaseRAG:
 # Create single instance
 rag = BaseRAG() 
 # rag.process_document("/home/fawez/Downloads/HATTABI_FAWEZ_RES.pdf", candidate_id=1)
-rag.load_session(1) #TODO: change the behaviour of session ids
+rag.load_session(1) #TODO: change the behaviour of session ids for now i'm manually loading a specific session
 if __name__ == "__main__":
     response = rag.generate_response("What is the candidate's name?")
     print(response)

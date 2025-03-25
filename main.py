@@ -119,8 +119,9 @@ workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
 workflow.add_edge("interview_agent", "evaluation_agent")
 workflow.add_edge("evaluation_agent","gen_report")
-workflow.add_edge("gen_report", "end")
-# workflow.add_edge("database_agent", "end")
+workflow.add_edge("gen_report", "database_agent")
+#BUG : the problem is to try this fully we need to delete the candidate and the candidate cant be deleted because there's a session related to it
+workflow.add_edge("database_agent", "end")
 workflow.set_finish_point("end")
 
 

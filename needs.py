@@ -61,7 +61,7 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash",
     temperature=0
-)  # TODO: Change for better model  #NOTE: gemini-2.0-flash is bugging
+)  # TODO: Change for better model  #BUG: gemini-2.0-flash is bugging
 
 embeddings = GoogleGenerativeAIEmbeddings(
     model="models/text-embedding-004"
