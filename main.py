@@ -1,7 +1,7 @@
 import time
 import candidate
 from core_rag import rag
-from langgraph.graph import StateGraph 
+from langgraph.graph import StateGraph
 from database_agent import start_db_agent
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
@@ -28,24 +28,46 @@ def start_interview(state: State):
 
 def initialize_candidate_info(state: State):
     """Initialize candidate information."""
-    return {
-        'applied_role': candidate.applied_role,
-        'skills': candidate.skills,
-        'name': candidate.name,
-        'email': candidate.email,
-        'phone': candidate.phone
+    candidate_info = candidate.process_candidate_info()
+
+    # Create a new state with all the information
+    new_state = {
+        **state,  # Include all existing state
+        'name': candidate_info['name'],
+        'phone': candidate_info['phone'],
+        'email': candidate_info['email'],
+        'skills': candidate_info['skills'],
+        'job_details': candidate_info['job_details']
     }
+    print("Candidate information initialized:", new_state)
+
+    return new_state
 
 def generate_interview_plan(state: State):
     """Generates an interview plan based on the candidate's role and skills."""
-    role = state.get('applied_role', state['applied_role'])
-    skills = state.get('skills')
-    
+    # Get candidate information from the state
+    candidate_skills = state.get('skills', [])
+
+    # If job_details is missing, try to get it from candidate.py
+    if 'job_details' not in state:
+        candidate_info = candidate.process_candidate_info()
+        job_details = candidate_info.get('job_details', {})
+
+        # Update the state with job_details
+        state['job_details'] = job_details
+
+    # Get job details from state
+    applied_role = state['job_details'].get('applied_role', 'Unknown Role')
+    job_skills = state['job_details'].get('skills', [])
+    job_description = state['job_details'].get('description', "No description available")
+
     try:
         # Generate questions using the RAG system
         prompt = f"""
-        Based on the job offer and candidate profile, generate 3 interview questions for the role of {role} make them as short as possible.
-        Focus on the following skills: {skills}.
+        these are infos about the candidate: {candidate_skills}
+        these are infos about the job: {job_skills} {job_description}
+        and this is the role that the candidate applied for: {applied_role}
+        Generate 3 questions for the interview based on the candidate's profile and the job requirements.
         Format each question as a numbered item.
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
@@ -59,7 +81,7 @@ def generate_interview_plan(state: State):
     except Exception as e:
         print(f"API Error: {str(e)}")
         return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
-    
+
     return {'plan': questions}
 
 
@@ -69,7 +91,7 @@ def generate_report(state: dict):
     report = [
         f"""
 ----------------Interview Report for {state['name']}------------------
-Position: {state['applied_role']}
+Position: {state['job_details'].get('applied_role', 'Unknown Role')}
 Skills: {state['skills']}\n
 -----------------------Interview Scores-------------------------------
 """
@@ -84,7 +106,7 @@ Skills: {state['skills']}\n
             report.append(f"{i}. Question: {score['question']}")
             report.append(f"   Answer: {score['response']}")
             report.append(f"   Evaluation: {score['evaluation']}\n")
-    
+
     report_text = '\n'.join(report)
     return {'report': report_text, 'state': state}
 
@@ -119,9 +141,9 @@ workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
 workflow.add_edge("interview_agent", "evaluation_agent")
 workflow.add_edge("evaluation_agent","gen_report")
-workflow.add_edge("gen_report", "database_agent")
+# workflow.add_edge("gen_report", "database_agent")
 #BUG : the problem is to try this fully we need to delete the candidate and the candidate cant be deleted because there's a session related to it
-workflow.add_edge("database_agent", "end")
+workflow.add_edge("gen_report", "end")
 workflow.set_finish_point("end")
 
 

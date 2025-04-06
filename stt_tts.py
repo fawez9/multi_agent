@@ -18,14 +18,18 @@ def text_to_speech_and_play(text: str):
     
     for chunk in tts_model.stream_tts_sync(text, options):
         sample_rate, audio_data = chunk
+        #TODO : for now it just plays the audio with device's default output but we gonna make it interact with a web app (reask about this)
         sd.play(audio_data.T, sample_rate)
         sd.wait()
 
+#TODO : find a better way to handle audio input so that candidate audio is not interrupted (cutted)
+#NOTE : this might be a feature can be done in the frontend and returns the audio data
 def speech_to_text() -> str:
     """Records audio and converts it to text using FastRTC's STT"""
     print("Listening... Speak now!")
     
     # Record audio using sounddevice
+    #TODO: threshhold adding 
     duration = 5  # seconds
     sample_rate = 16000
     recording = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1)

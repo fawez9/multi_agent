@@ -107,7 +107,8 @@ def collect_response(state: dict) -> dict:
     state['scores'] = state.get('scores',[])
     
     if state.get("current_question"):
-        response = speech_to_text() #TODO: Replace with speech recognition
+        # response = speech_to_text() #TODO: Replace with speech recognition
+        response = input("A: ")
 
         
         conversation_event = {
@@ -238,6 +239,7 @@ def create_interview_agent(llm):
         tools=tools,
         verbose=True,
         return_intermediate_steps=True,
+        #BUG: without max_iterations it bugs but i cant specify the exact number of iterations 
         handle_parsing_errors=True
     )
 
