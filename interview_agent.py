@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
+from stt_tts import text_to_speech_and_play , speech_to_text
 
 from needs import llm, State
 class StateParam(BaseModel):
@@ -88,6 +89,7 @@ def present_question(state: dict) -> dict:
     state['conversation_history'].append(question_event)
     
     print(f"\nQ: {current_question}") #TODO: Replace with speech synthesis (TTS: text-to-speech)
+    text_to_speech_and_play(current_question)
     
     state.update({
         'current_question': current_question,
@@ -105,7 +107,9 @@ def collect_response(state: dict) -> dict:
     state['scores'] = state.get('scores',[])
     
     if state.get("current_question"):
-        response = input("\nYour answer: ") #TODO: Replace with speech recognition
+        # response = speech_to_text() #TODO: Replace with speech recognition
+        response = input("A: ")
+
         
         conversation_event = {
             'event_type': 'collect_response',
@@ -212,7 +216,7 @@ def create_interview_agent(llm):
         3. If the plan is incomplete:
            - Use present_question to show the next question
            - Use collect_response to get the candidate's answer
-           - If the response needs refinement, use refine_question and repeat from step 3
+           - If the response needs refinement, use refine_question and repeat present_question and collect_response.
         
         Available tools:
         {tools}{tool_names}
@@ -235,6 +239,7 @@ def create_interview_agent(llm):
         tools=tools,
         verbose=True,
         return_intermediate_steps=True,
+        #BUG: without max_iterations it bugs but i cant specify the exact number of iterations 
         handle_parsing_errors=True
     )
 
