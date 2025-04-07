@@ -1,11 +1,11 @@
 import time
 import candidate
+from needs import State
 from core_rag import rag
 from langgraph.graph import StateGraph
-from database_agent import start_db_agent
+from database_store import store_interview_data
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
-from needs import State
 
 
 def start_interview(state: State):
@@ -127,7 +127,7 @@ nodes = [
     ("interview_agent", start_interview_agent),
     ("evaluation_agent",start_evaluation_agent),
     ("gen_report", generate_report),
-    ("database_agent", start_db_agent),
+    ("database_store", store_interview_data),
     ("end", end_interview)
 ]
 
@@ -141,9 +141,8 @@ workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
 workflow.add_edge("interview_agent", "evaluation_agent")
 workflow.add_edge("evaluation_agent","gen_report")
-# workflow.add_edge("gen_report", "database_agent")
-#BUG : the problem is to try this fully we need to delete the candidate and the candidate cant be deleted because there's a session related to it
-workflow.add_edge("gen_report", "end")
+workflow.add_edge("gen_report", "database_store")
+workflow.add_edge("database_store", "end")
 workflow.set_finish_point("end")
 
 
