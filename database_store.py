@@ -123,18 +123,17 @@ def store_conversation_history(state: Dict[str, Any]) -> Dict[str, Any]:
         cursor.close()
         connection_pool.putconn(conn)
 
-def store_interview_data(state: State, close_pool: bool = False) -> Dict[str, Any]:
+def store_interview_data(state: State) -> Dict[str, Any]:
     """Main function to store interview data in the database.
 
     This function follows a sequential process:
-    1. Check if candidate exists (must exist in the database)
+    1. Check if candidate exists
     2. Create a report for the candidate
     3. Store interview scores
     4. Store conversation history
 
     Args:
         state: The interview state containing all data
-        close_pool: Whether to close the connection pool after operations
 
     Returns:
         A dictionary with the operation status
@@ -148,13 +147,6 @@ def store_interview_data(state: State, close_pool: bool = False) -> Dict[str, An
         result = check_candidate_exists(state)
         if "error" in result:
             return result
-
-        # Candidate must exist in the database
-        if not result.get("exists", False):
-            return {"error": "Candidate does not exist in the database"}
-
-        # Use the candidate ID
-        state["id"] = result["id"]
 
         # Step 3: Create a report
         result = create_report(state)
@@ -181,8 +173,7 @@ def store_interview_data(state: State, close_pool: bool = False) -> Dict[str, An
         traceback.print_exc()
         return {"status": "Error", "error": str(e)}
     finally:
-        if close_pool:
-            close_connection_pool()
+        close_connection_pool()
 
 if __name__ == "__main__":
     # Test data
@@ -222,7 +213,7 @@ if __name__ == "__main__":
     try:
         # Execute the database operations
         print("\nExecuting database operations:")
-        result = store_interview_data(test_state, close_pool=True)
+        result = store_interview_data(test_state)
         print("\nFinal Result:", json.dumps(result, indent=2))
 
     except Exception as e:

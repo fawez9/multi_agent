@@ -60,14 +60,14 @@ def generate_interview_plan(state: State):
     applied_role = state['job_details'].get('applied_role', 'Unknown Role')
     job_skills = state['job_details'].get('skills', [])
     job_description = state['job_details'].get('description', "No description available")
-
+    nb_questions = 3   #TODO : param for questions
     try:
         # Generate questions using the RAG system
         prompt = f"""
         these are infos about the candidate: {candidate_skills}
         these are infos about the job: {job_skills} {job_description}
         and this is the role that the candidate applied for: {applied_role}
-        Generate 3 questions for the interview based on the candidate's profile and the job requirements.
+        Generate {nb_questions} questions for the interview based on the candidate's profile and the job requirements.
         Format each question as a numbered item.
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
@@ -82,7 +82,7 @@ def generate_interview_plan(state: State):
         print(f"API Error: {str(e)}")
         return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
 
-    return {'plan': questions}
+    return {'plan': questions,'nb_questions':nb_questions}
 
 
 def generate_report(state: dict):
@@ -114,7 +114,6 @@ Skills: {state['skills']}\n
 def end_interview(state: State):
     """Ends the interview and displays the final report."""
     print("\n" + state['report'])
-    print("\nInterview completed. Thank you!")
 
 # Define the workflow using StateGraph
 workflow = StateGraph(State)

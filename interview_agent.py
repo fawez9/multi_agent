@@ -1,37 +1,60 @@
+# Standard library imports
 import ast
 import json
 import time
 import traceback
-from typing import Callable
+from typing import Callable, Dict, Any, Union
 from functools import wraps
+
+# Third-party imports
 from pydantic import BaseModel, Field, field_validator
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
-from stt_tts import text_to_speech_and_play , speech_to_text
 
+# Local imports
+from stt_tts import text_to_speech_and_play
 from needs import llm, State
+
 class StateParam(BaseModel):
-    """Pydantic model for the state parameter."""
-    state: dict = Field(..., description="The current interview state")
+    """Pydantic model for the state parameter.
+
+    This model handles conversion between string and dictionary representations
+    of the interview state, which is necessary for the LangChain tools interface.
+    """
+    state: Dict[str, Any] = Field(..., description="The current interview state")
 
     @field_validator("state", mode="before")
     def parse_state(cls, value):
+        """Parse the state from various formats into a dictionary."""
         if isinstance(value, str):
             try:
+                # First try to evaluate as a Python literal
                 return ast.literal_eval(value)  # Convert string to dict
-            except:
+            except Exception:
                 try:
+                    # Then try to parse as JSON (replacing single quotes with double quotes)
                     return json.loads(value.replace("'", "\""))
-                except:
+                except Exception:
                     raise ValueError(f"Cannot parse state: {value}")
         return value  # If already a dict, return as is
 
 def handle_state_conversion(func: Callable) -> Callable:
-    """Decorator to handle state conversion for tools."""
+    """Decorator to handle state conversion for interview agent tools.
+
+    This decorator ensures that regardless of how the state is passed to a tool
+    (as a string, dict, or StateParam object), it's properly converted to a
+    dictionary before being processed by the tool function.
+
+    Args:
+        func: The tool function that operates on the state
+
+    Returns:
+        A wrapped function that handles state conversion and error handling
+    """
     @wraps(func)
-    def wrapper(state: dict | str | StateParam, *args, **kwargs) -> dict:
+    def wrapper(state: Union[Dict[str, Any], str, StateParam], *args, **kwargs) -> Dict[str, Any]:
         try:
             # Handle string input
             if isinstance(state, str):
@@ -45,7 +68,11 @@ def handle_state_conversion(func: Callable) -> Callable:
                 converted_state = state
             else:
                 raise ValueError(f"Unexpected state type: {type(state)}")
-            
+
+            # Initialize internal flags if they don't exist
+            if '_internal_flags' not in converted_state:
+                converted_state['_internal_flags'] = {}
+
             return func(converted_state, *args, **kwargs)
         except Exception as e:
             print(f"Error in {func.__name__}: {str(e)}")
@@ -56,118 +83,262 @@ def handle_state_conversion(func: Callable) -> Callable:
 
 @tool(args_schema=StateParam)
 @handle_state_conversion
-def check_interview_plan(state: dict) -> dict:
-    """Checks the status of the interview plan."""
+def check_interview_plan(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Checks the status of the interview plan.
+
+    This tool examines the current plan to determine if all questions have been asked.
+    If the plan is empty, it marks the interview as complete and handles the final
+    messaging. If questions remain, it marks the status as incomplete.
+
+    Args:
+        state: The current interview state
+
+    Returns:
+        Updated interview state with status information
+    """
     plan = state.get("plan", [])
+
     if not plan:
+        # No more questions in the plan
         state.update({'status': 'Plan Complete'})
+        state['_internal_flags']['interview_complete'] = True
+
+        # If thank you message has been presented, mark this as the final check
+        if state['_internal_flags'].get('thank_you_presented', False):
+            state['_internal_flags']['final_check'] = True
+            print("\nInterview completed successfully.")
+
+            # Show completion message if not already shown
+            if not state['_internal_flags'].get('completion_message_shown', False):
+                print("\nAll questions have been asked and responses collected.")
+                print("The interview process has ended.")
+                state['_internal_flags']['completion_message_shown'] = True
     else:
+        # There are still questions to ask
         state.update({'status': 'Plan Incomplete'})
+
     return state
 
 @tool(args_schema=StateParam)
 @handle_state_conversion
-def present_question(state: dict) -> dict:
-    """Presents the next question in the interview plan."""
+def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Presents the next question in the interview plan.
 
+    This tool either presents the next question from the plan or delivers a thank you
+    message if the interview is complete. It handles tracking the conversation history
+    and manages the state transitions between questions.
+
+    Args:
+        state: The current interview state
+
+    Returns:
+        Updated interview state with the current question information
+    """
+    # Initialize conversation history if it doesn't exist
     state['conversation_history'] = state.get('conversation_history', [])
     plan = state.get("plan", [])
-    
+
+    # Check if the interview is already complete
+    if state['_internal_flags'].get('interview_complete', False):
+        # Present a thank you message if this is the first time after completion
+        if not state['_internal_flags'].get('thank_you_presented', False):
+            thank_you_message = f"Thank you, {state.get('name', 'candidate')}, for participating in this interview. We appreciate your time and responses."
+            print(f"\n{thank_you_message}")
+            text_to_speech_and_play(thank_you_message)
+
+            # Mark that the thank you message has been presented
+            state['_internal_flags']['thank_you_presented'] = True
+
+            # Track the thank you message in conversation history
+            end_event = {
+                'event_type': 'interview_end',
+                'message': thank_you_message
+            }
+            state['conversation_history'].append(end_event)
+        return state
+
     # Check if plan is empty
     if not plan:
         state.update({'status': 'Plan Complete'})
+        state['_internal_flags']['interview_complete'] = True
         return state
-        
+
+    # Get the current question from the plan
     current_question = plan[0]
-    
-    # Track the question presentation
+
+    # Check if this is a new question (not a refined version of the current question)
+    if state.get('current_question', '') != current_question and not state['_internal_flags'].get('question_refined', False):
+        # Reset refinement flags for new questions
+        state['_internal_flags']['question_refined'] = False
+        state['_internal_flags']['needs_refinement'] = False
+
+    # Track the question presentation in conversation history
     question_event = {
         'event_type': 'present_question',
         'question': current_question,
         'is_refined': state['_internal_flags'].get('question_refined', False),
     }
     state['conversation_history'].append(question_event)
-    
-    print(f"\nQ: {current_question}") #TODO: Replace with speech synthesis (TTS: text-to-speech)
-    text_to_speech_and_play(current_question)
-    
+
+    # Present the question to the candidate
+    print(f"\nQ: {current_question}")
+    text_to_speech_and_play(current_question)  # Uncommented this line
+
+    # Update the current question in the state
     state.update({
         'current_question': current_question,
     })
-    
+
     return state
 
 @tool(args_schema=StateParam)
 @handle_state_conversion
-def collect_response(state: dict) -> dict:
-    """Collects the candidate's response to the current question."""
-    state['_internal_flags'] = state.get('_internal_flags', {})
+def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Collects the candidate's response to the current question.
+
+    This tool handles collecting and evaluating the candidate's response to the current
+    interview question. It determines if the response indicates understanding or if the
+    question needs refinement. It also manages the interview flow by updating the plan
+    and internal flags appropriately.
+
+    Args:
+        state: The current interview state
+
+    Returns:
+        Updated interview state with the candidate's response and evaluation
+    """
+    # Initialize required state fields
     state['conversation_history'] = state.get('conversation_history', [])
     state['plan'] = state.get('plan', [])
-    state['scores'] = state.get('scores',[])
-    
+    state['scores'] = state.get('scores', [])
+
+    # Check if the interview is already complete
+    if state['_internal_flags'].get('interview_complete', False):
+        return state  # Nothing to do if interview is complete
+
+    # Only collect response if there's a current question
     if state.get("current_question"):
-        # response = speech_to_text() #TODO: Replace with speech recognition
+        # Get response from the candidate
+        # TODO: Replace with speech recognition when implemented
         response = input("A: ")
 
-        
+        # Handle empty or very short responses
+        if not response or len(response.strip()) < 2:
+            print("\nMoving to the next question...")
+            # Mark as answered and move to next question
+            if state['plan']:
+                state['plan'].pop(0)
+            state['_internal_flags']['question_answered'] = True
+
+            # Record the empty response in scores
+            scores = {
+                'question': state.get('current_question', ''),
+                'response': '[No response provided]',
+                'evaluation': 'Empty response'
+            }
+            state['scores'].append(scores)
+            state.update({
+                'current_question': '',
+                'response': ''
+            })
+            return state
+
+        # Record the response in conversation history
         conversation_event = {
             'event_type': 'collect_response',
             'response': response
         }
         state['conversation_history'].append(conversation_event)
-        
+
+        # Only check for refinement if the question hasn't been refined yet
         if not state['_internal_flags'].get('question_refined'):
-            messages = [
-                SystemMessage(content="You are evaluating whether a candidate understood an interview question based on their response. Answer with ONLY 'yes' or 'no'."),
-                HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'?")
-            ]
-            
-            check = llm.invoke(messages)
-            time.sleep(1)
-            
-            if 'no' in check.content.lower():
+            # Check if the response indicates confusion
+            confusion_indicators = ['hun', 'huh', 'what', 'idk', 'dunno', '?', 'sorry', 'not sure']
+            is_confused = (len(response.strip()) < 5 or
+                          any(indicator in response.strip().lower() for indicator in confusion_indicators))
+
+            if is_confused:
+                # Mark that the question needs refinement
                 state['_internal_flags'].update({
                     'needs_refinement': True,
                     'question_answered': False
                 })
-                state.update({
-                    'response': response
-                })
+                state.update({'response': response})
                 return state
-    
+
+            # Use LLM to evaluate if the candidate understood the question
+            messages = [
+                SystemMessage(content="You are evaluating whether a candidate understood an interview question based on their response. Answer with ONLY 'yes' or 'no'."),
+                HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'?")
+            ]
+
+            check = llm.invoke(messages)
+            time.sleep(1)
+
+            if 'no' in check.content.lower():
+                # Mark that the question needs refinement
+                state['_internal_flags'].update({
+                    'needs_refinement': True,
+                    'question_answered': False
+                })
+                state.update({'response': response})
+                return state
+        else:
+            # If the question has already been refined once, accept any response
+            print("\nQuestion was already refined once. Accepting response and moving on.")
+
+        # If no refinement is needed or we're accepting the response anyway
         if not state['_internal_flags'].get('needs_refinement', False):
             if state['plan']:
-                state['plan'].pop(0)
+                state['plan'].pop(0)  # Remove the current question from the plan
+                # Reset refinement flags for the next question
+                state['_internal_flags']['question_refined'] = False
             state['_internal_flags']['question_answered'] = True
-            
-        scores={
+
+        # Record the response in scores
+        scores = {
             'question': state.get('current_question', ''),
-            'response': response, #TODO: make this a list to store even the responses before the refinement
-            'evaluation': ''
+            'response': response,
+            'evaluation': ''  # TODO: Add evaluation of response quality
         }
         state['scores'].append(scores)
+
+        # Clear current question and response
         state.update({
             'current_question': '',
             'response': ''
         })
-        
+
         return state
-    
-    state.update({
-        'response': ''
-        })
+
+    # No current question, just clear the response
+    state.update({'response': ''})
     return state
 
 @tool(args_schema=StateParam)
 @handle_state_conversion
-def refine_question(state: dict) -> dict:
-    """Refines the current question to make it clearer for the candidate."""
-    state['_internal_flags'] = state.get('_internal_flags', {})
+def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Refines the current question to make it clearer for the candidate.
+
+    This tool uses the LLM to rewrite a question that the candidate didn't understand,
+    making it clearer while maintaining the same topic and difficulty level. It handles
+    the one-time refinement policy by tracking whether a question has already been refined.
+
+    Args:
+        state: The current interview state
+
+    Returns:
+        Updated interview state with the refined question
+    """
+    # Initialize required state fields
     state['conversation_history'] = state.get('conversation_history', [])
-    state['plan'] = state.get('plan',[])
-    
-    if state['_internal_flags'].get('needs_refinement', False):
+    state['plan'] = state.get('plan', [])
+
+    # Only refine if refinement is needed and the question hasn't been refined yet
+    if state['_internal_flags'].get('needs_refinement', False) and not state['_internal_flags'].get('question_refined', False):
+        print("\nRefining question for better clarity...")
+
+        # Prepare the prompt for the LLM to refine the question
         messages = [
             SystemMessage(content="""
             You are helping to refine an interview question that the candidate didn't understand.
@@ -178,46 +349,89 @@ def refine_question(state: dict) -> dict:
             HumanMessage(content=f"""
             Original question: {state.get('current_question', '')}
             Candidate's response: {state.get('response', '')}
-            
+
             Please provide only the refined question without any additional text.
             """)
         ]
-        
+
+        # Get the refined question from the LLM
         refined = llm.invoke(messages)
         time.sleep(1)
-        
+
+        # Extract and record the refined question
         refined_question = refined.content.strip()
         refinement_event = {
             'event_type': 'refine_question',
             'refined_question': refined_question
         }
         state['conversation_history'].append(refinement_event)
-        
+
+        # Replace the current question in the plan with the refined version
         if state['plan']:
             state['plan'][0] = refined_question
-        
+
+        # Update flags to indicate the question has been refined
         state['_internal_flags'].update({
             'needs_refinement': False,
             'question_refined': True
         })
-    
+    elif state['_internal_flags'].get('question_refined', False) and state['_internal_flags'].get('needs_refinement', False):
+        # If the question has already been refined once, move to the next question
+        print("\nQuestion was already refined once. Moving to the next question.")
+
+        if state['plan']:
+            state['plan'].pop(0)  # Remove the current question
+
+        # Reset flags for the next question
+        state['_internal_flags'].update({
+            'needs_refinement': False,
+            'question_refined': False,  # Reset for the next question
+            'question_answered': True   # Mark as answered so we move on
+        })
+
+        # Clear current question and response
+        state.update({
+            'current_question': '',
+            'response': ''
+        })
+
     return state
 
 def create_interview_agent(llm):
-    """Creates an agent that conducts the interview."""
+    """Creates an agent that conducts the interview.
+
+    This function creates a LangChain agent with the necessary tools and prompt
+    to conduct an interview. The agent follows a specific protocol for asking questions,
+    collecting responses, and refining questions when needed.
+
+    Args:
+        llm: The language model to use for the agent
+
+    Returns:
+        An AgentExecutor that can conduct the interview
+    """
+    # Define the tools available to the agent
     tools = [check_interview_plan, present_question, collect_response, refine_question]
+
+    # Create the prompt template with detailed instructions
     prompt = ChatPromptTemplate.from_messages([
         ("system", """
-         You are an interviewer conducting an interview with a candidate. Follow these steps precisely:
+         You are an interviewer conducting an interview with a candidate. Follow these steps precisely in this exact order:
 
         Steps:
-        1. First, check the interview plan status using check_interview_plan 
-        2.If the status is 'Plan Complete', stop immediately.
-        3. If the plan is incomplete:
+        1. ALWAYS start by checking the interview plan status using check_interview_plan
+        2. If the status is 'Plan Complete':
+           - Use present_question ONCE to end the interview gracefully with a thank you message
+           - Then use check_interview_plan as your FINAL action to end the interview
+           - After the final check, STOP - do not take any more actions
+        3. If the status is 'Plan Incomplete':
            - Use present_question to show the next question
            - Use collect_response to get the candidate's answer
-           - If the response needs refinement, use refine_question and repeat present_question and collect_response.
-        
+           - If the response indicates the candidate didn't understand AND the question hasn't been refined yet,
+             use refine_question ONCE and then repeat present_question and collect_response
+           - If the question has already been refined once, accept any response and move to the next question
+           - After collecting a response, ALWAYS use check_interview_plan to check if the plan is now complete
+
         Available tools:
         {tools}{tool_names}
 
@@ -226,76 +440,137 @@ def create_interview_agent(llm):
         Action: [tool name]
         Action Input: {{[complete current state]}}
         Observation: [tool result]
-        
+
         Always include the COMPLETE state in Action Input.
+
+        IMPORTANT RULES:
+        - ALWAYS start with check_interview_plan
+        - After each response is collected, use check_interview_plan to verify the plan status
+        - Each question can be refined AT MOST ONCE - if a question has already been refined, accept any response
+        - When the plan is complete (empty plan array), use present_question ONCE to deliver the thank you message
+        - After delivering the thank you message, use check_interview_plan as your FINAL action
+        - When you see 'Interview completed successfully' in the output, the interview is over - do not take any more actions
+        - Handle empty responses gracefully by moving to the next question
+        - Do not try to use 'None' as a tool - always use one of the available tools
         """),
         ("human", "State: {input}"),
         ("assistant", "Thought:{agent_scratchpad}")
     ])
-    
+
+    # Create the agent and executor
     agent = create_react_agent(llm, tools, prompt)
     return AgentExecutor(
         agent=agent,
         tools=tools,
         verbose=True,
         return_intermediate_steps=True,
-        #BUG: without max_iterations it bugs but i cant specify the exact number of iterations 
         handle_parsing_errors=True
+        # max_iterations is set in start_interview_agent
     )
 
+# Create the interview agent
 agent = create_interview_agent(llm)
 
-def start_interview_agent(state: State):
-    """Starts the interview agent."""
+def start_interview_agent(state: Union[State, Dict[str, Any]]):
+    """Starts the interview agent with the given state.
+
+    This function initializes and runs the interview agent with the provided state.
+    It calculates the appropriate number of iterations based on the number of questions,
+    handles the agent execution, and updates the state with the results.
+
+    Args:
+        state: The initial interview state, either as a State object or dictionary
+
+    Returns:
+        The final interview state after completion
+    """
     try:
-        working_state=state.copy()
-        
+        # Create a working copy of the state
+        working_state = state.copy() if hasattr(state, 'copy') else state.copy()
+
+        # Print interview start message
         print(f"\nStarting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
-        
-        
-        # Pass the cleaned state to the agent
-        result = agent.invoke({"input": working_state})
-        
+
+        # Calculate max_iterations based on the number of questions and expected tool calls
+        nb_questions = working_state.get('nb_questions', 2)
+
+        # Assuming at most one refinement per question:
+        max_calls_per_question = 6  # 3 base + 3 for refinement
+
+        # Add check_interview_plan calls at the beginning and end
+        initial_and_final_checks = 2
+
+        # Add extra calls for handling the end of the interview (1 for thank you message)
+        end_handling = 1
+
+        # Calculate the base number of iterations needed
+        base_iterations = (nb_questions * max_calls_per_question) + initial_and_final_checks + end_handling
+
+        # Set max_iterations with a small buffer to prevent premature termination
+        max_iterations = base_iterations + 2
+
+        # Run the agent with the calculated max_iterations
+        result = agent.invoke({"input": working_state}, max_iterations=max_iterations)
+
+        # Brief pause to allow any pending output to complete
         time.sleep(1)
-        
-        # Update working state with all intermediate steps
+
+        # Update working state with results from all intermediate steps
         if result.get("intermediate_steps"):
             for step in result["intermediate_steps"]:
                 if isinstance(step[1], dict):
                     working_state.update(step[1])
-        
-        # Force the status update based on the plan
+
+        # Ensure the status is consistent with the plan
         if 'plan' in working_state and not working_state.get('plan'):
             working_state['status'] = 'Plan Complete'
-        
-        # Update the original state
+
+        # Update the original state object
         if isinstance(state, dict):
             state.clear()
             state.update(working_state)
         else:
+            # If it's a State object, update its attributes
             for key, value in working_state.items():
                 setattr(state, key, value)
-        
+
         return working_state
-        
+
     except Exception as e:
         print(f"Error in start_interview_agent: {str(e)}")
-        return {"status": "Error"}
+        traceback.print_exc()
+        return {"status": "Error", "error": str(e)}
 
 if __name__ == "__main__":
+    # Test state for running the interview agent directly
     test_state = {
+        # Candidate information
         'name': 'John Doe',
         'applied_role': 'Software Developer',
+
+        # Interview plan and status
         'plan': ["What is your greatest strength?", "Why do you want this job?"],
+        'status': 'Plan Incomplete',
+        'nb_questions': 2,  # Explicitly set the number of questions
+
+        # Current state tracking
         'current_question': '',
         'response': '',
-        'status': 'Plan Incomplete',
+
+        # Internal flags for controlling the interview flow
         '_internal_flags': {
             'needs_refinement': False,
             'question_answered': False,
             'question_refined': False
         },
-        'conversation_history': []
+
+        # History and scoring
+        'conversation_history': [],
+        'scores': []
     }
+
+    # Run the interview
     result = start_interview_agent(test_state)
-    print("Final state:", result)
+
+    # Print the final state (for debugging)
+    print("\nFinal state:", result)
