@@ -63,6 +63,7 @@ def generate_interview_plan(state: State):
     nb_questions = 3   #TODO : param for questions
     try:
         # Generate questions using the RAG system
+        #TODO : enhance the prompt to maintain a stable TTS
         prompt = f"""
         these are infos about the candidate: {candidate_skills}
         these are infos about the job: {job_skills} {job_description}
