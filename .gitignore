@@ -11,5 +11,7 @@ interview_db.ini
 config.py
 querries
 test2.py
-video_stream.py
 index.html
+simple-ui.html
+simple_server.py
+pure_video_stream.py

@@ -87,8 +87,9 @@ def evaluate_response(state: Dict[str, Any]) -> Dict[str, Any]:
                 continue
 
             # Create evaluation prompt
+            #NOTE : we can change the prompt to analyze the response tone as needed
             prompt = f"""
-            Evaluate this response concisely based on candidate's profile and these provided infos:
+            Evaluate this response concisely based on candidate's profile and these provided infos and analyze the tone if it was positive or negative:
             Question: {score.get('question', 'Not provided')}
             Response: {score.get('response', 'Not provided')}
             Conversation History: {conversation_history}

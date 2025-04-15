@@ -83,7 +83,7 @@ def get_job_details(candidate_name):
                 "skills": ["Python", "JavaScript"],
                 "description": "Software development position"}
 
-
+# NOTE : this is supposed to be on the backend , return candidate id that's the input for the process_document function on the core_rag to process CVs
 def create_candidate(name: str, email: str, phone: str = "Unknown",role: str = "Unknown", skills: List[str] = None) -> Tuple[int, bool]:
     """Create a new candidate in the database if they don't exist.
 
