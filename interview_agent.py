@@ -489,7 +489,7 @@ def start_interview_agent(state: Union[State, Dict[str, Any]]):
         working_state = state.copy() if hasattr(state, 'copy') else state.copy()
 
         # Print interview start message
-        print(f"\nStarting interview for {working_state.get('name', 'candidate')} ({working_state.get('applied_role', 'unknown role')})...")
+        print(f"\nStarting interview for {working_state.get('name', 'candidate')} ...")
 
         # Calculate max_iterations based on the number of questions and expected tool calls
         nb_questions = working_state.get('nb_questions', 2)

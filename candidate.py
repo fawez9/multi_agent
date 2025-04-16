@@ -4,42 +4,28 @@ from typing import Dict, Union, List, Tuple
 from core_rag import rag
 from needs import engine
 
+def get_candidate_details(candidate_name):
+    """Fetch candidate details from the database based on candidate name"""
+    try:
+        with engine.connect() as conn:
+            cursor = conn.connection.cursor()
 
-def get_candidate_basic_info():
-    """Get basic candidate information (name, phone, email) from the resume"""
-    prompt = """
-    1. What is the candidate's name?
-    2. What is the candidate's phone?
-    3. What is the candidate's email?
-    """
-    return rag.generate_response(prompt)
+            query = "SELECT name, phone, email, skills FROM candidates WHERE name = %s;"
+            cursor.execute(query, (candidate_name,))
+            result = cursor.fetchone()
 
-
-def get_candidate_skills(basic_info):
-    """Get candidate's technical skills based on their resume"""
-    prompt = f"""
-    1. What are the candidate's technical skills?
-    take these infos in consideration {basic_info}
-    return json format with keys
-    {{
-        "name": "",
-        "phone": "",
-        "email": "",
-        "skills": []
-        "role": "" (if not found return aproximation of role)
-    }}
-    """
-    return rag.generate_response(prompt)
-
-
-def parse_json_response(json_response):
-    """Clean and parse the JSON response from the LLM"""
-    # Clean the response by removing markdown code block markers
-    cleaned_response = json_response.replace('```json', '').replace('```', '').strip()
-    print("Raw response:", cleaned_response)
-
-    # Parse the JSON string into a Python dictionary
-    return json.loads(cleaned_response)
+            if result:
+                return {
+                    "name": result[0],
+                    "phone": result[1],
+                    "email": result[2],
+                    "skills": result[3]
+                }
+            else:
+                return None
+    except Exception as e:
+        print(f"Error fetching candidate details: {e}")
+        return None
 
 
 def get_job_details(candidate_name):
@@ -125,7 +111,7 @@ def create_candidate(name: str, email: str, phone: str = "Unknown",role: str = "
         return candidate_id, True
 
 
-def process_candidate_info(create_db_entry: bool = False) -> Dict[str, Union[str, List[str], Dict[str, Union[str, List[str]]], int]]:
+def process_candidate_info() -> Dict[str, Union[str, List[str], Dict[str, Union[str, List[str]]], int]]:
     """Main function to process candidate information
 
     Args:
@@ -134,16 +120,9 @@ def process_candidate_info(create_db_entry: bool = False) -> Dict[str, Union[str
     Returns:
         Dictionary containing candidate information and optionally candidate_id
     """
-    # Get basic candidate information
-    basic_info = get_candidate_basic_info()
-    time.sleep(2)  # Prevent rate limiting
-
-    # Get candidate skills
-    json_response = get_candidate_skills(basic_info)
-    time.sleep(2)  # Prevent rate limiting
-
-    # Parse the response
-    data = parse_json_response(json_response)
+    # Get candidate details from the database
+    response = rag.generate_response("What is the candidate's name?")
+    data = get_candidate_details(response)
 
     # Extract information into variables
     name = data.get("name", "Unknown")
@@ -169,7 +148,7 @@ def process_candidate_info(create_db_entry: bool = False) -> Dict[str, Union[str
 
 if __name__ == "__main__":
     # Process candidate info and create database entry
-    candidate_info = process_candidate_info(create_db_entry=True)
+    candidate_info = process_candidate_info()
 
     print(f"Name: {candidate_info['name']}")
     print(f"Applied Role: {candidate_info['job_details']['applied_role']}")
