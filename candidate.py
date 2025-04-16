@@ -60,7 +60,7 @@ def get_job_details(candidate_name):
 
             # Get the candidate's session and job details
             query = """
-            SELECT j.title, j.skills, j.description
+            SELECT j.title, j.skills, j.description,j.company
             FROM job_offers j
             JOIN sessions s ON j.id = s.applied_role_id
             JOIN candidates c ON c.id = s.candidate_id
@@ -72,16 +72,14 @@ def get_job_details(candidate_name):
             if result:
                 return {"applied_role": result[0],
                         "skills": result[1],
-                        "description": result[2]}
-            else:
-                return {"applied_role": "Software Developer",
-                        "skills": ["Python", "JavaScript"],
-                        "description": "Software development position"}
+                        "description": result[2],
+                        "company": result[3]}
     except Exception as e:
         print(f"Error fetching job details: {e}")
-        return {"applied_role": "Software Developer",
-                "skills": ["Python", "JavaScript"],
-                "description": "Software development position"}
+        return {"applied_role": "unknown",
+                "skills": [],
+                "description": "unknown",
+                "company": "unknown"}
 
 # NOTE : this is supposed to be on the backend , return candidate id that's the input for the process_document function on the core_rag to process CVs
 def create_candidate(name: str, email: str, phone: str = "Unknown",role: str = "Unknown", skills: List[str] = None) -> Tuple[int, bool]:
@@ -185,7 +183,7 @@ if __name__ == "__main__":
         print(f"Candidate ID: {candidate_info['candidate_id']}")
         print(f"Is New Candidate: {candidate_info['is_new_candidate']}")
 
-    #NOTE : at first maybe u find that the skills adding by recruiter is a bad idea but actually it is a feature to let the recruiter specify which skills he wants to see in the candidate interview
+    #NOTE : the job offer has the needed skills so no need for candidate skills here
     # Example of direct candidate creation
     # candidate_id, is_new = create_candidate(
     #     name="Jane Smith",

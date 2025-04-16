@@ -6,6 +6,7 @@ from langgraph.graph import StateGraph
 from database_store import store_interview_data
 from interview_agent import start_interview_agent
 from evaluation_agent import start_evaluation_agent
+from stt_tts import text_to_speech_and_play
 
 
 def start_interview(state: State):
@@ -40,6 +41,8 @@ def initialize_candidate_info(state: State):
         'job_details': candidate_info['job_details']
     }
     print("Candidate information initialized:", new_state)
+    text='Welcome '+new_state['name']+' for your interview for a '+new_state['job_details']['applied_role']+' position at '+new_state['job_details']['company']+', we will generate your interview plan now'
+    text_to_speech_and_play(text)
 
     return new_state
 
@@ -83,6 +86,8 @@ def generate_interview_plan(state: State):
         print(f"API Error: {str(e)}")
         return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
 
+    text="now we will start the interview please prepare yourself and answer the questions clearly you'll get a one refinement per question make sure to understand the questions before answering, good luck"
+    text_to_speech_and_play(text)
     return {'plan': questions,'nb_questions':nb_questions}
 
 
@@ -141,8 +146,9 @@ workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
 workflow.add_edge("interview_agent", "evaluation_agent")
 workflow.add_edge("evaluation_agent","gen_report")
-workflow.add_edge("gen_report", "database_store")
-workflow.add_edge("database_store", "end")
+# workflow.add_edge("gen_report", "database_store")
+# workflow.add_edge("database_store", "end")
+workflow.add_edge("gen_report", "end")
 workflow.set_finish_point("end")
 
 
