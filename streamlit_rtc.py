@@ -225,49 +225,16 @@ st.title("👁️ Interview Chat")
 
 # Initialize chat messages in session state if not already present
 if "messages" not in st.session_state:
-    # Create some test messages to demonstrate scrolling
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Welcome to your interview! I'll be asking you some questions about your experience and skills. Let's get started."}
-    ]
+    st.session_state.messages = []
+
+# Get user input from chat
+if user_input := st.chat_input("Type your message here..."):
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
 # Display chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Chat input at the bottom (will be positioned by CSS)
-if prompt := st.chat_input("Your response"):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
-    # Display user message in chat message container
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # Generate a response from the LLM
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            # Build context from previous messages
-            context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-5:]])
-
-            # Create a prompt with context
-            full_prompt = f"""You are an interview assistant chatting with a candidate.
-            Be helpful, professional, and conversational. Here's the recent conversation history:
-
-            {context}
-
-            Please respond to the candidate's last message."""
-
-            # Use the Gemini model to generate a response
-            try:
-                llm_chat_response = model.generate_content(full_prompt)
-                response = llm_chat_response.text
-            except Exception as e:
-                response = f"I'm sorry, I encountered an error: {str(e)}"
-
-            # Display the response
-            st.markdown(response)
-
-    # Add assistant response to chat history
-    st.session_state.messages.append({"role": "assistant", "content": response})
 

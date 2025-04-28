@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # Local imports
 from stt_tts import text_to_speech_and_play
 from needs import llm, State
+import streamlit as st
 
 class StateParam(BaseModel):
     """Pydantic model for the state parameter.
@@ -144,7 +145,7 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
         if not state['_internal_flags'].get('thank_you_presented', False):
             thank_you_message = f"Thank you, {state.get('name', 'candidate')}, for participating in this interview. We appreciate your time and responses."
             print(f"\n{thank_you_message}")
-            text_to_speech_and_play(thank_you_message)
+            # text_to_speech_and_play(thank_you_message)
 
             # Mark that the thank you message has been presented
             state['_internal_flags']['thank_you_presented'] = True
@@ -182,7 +183,8 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Present the question to the candidate
     print(f"\nQ: {current_question}")
-    text_to_speech_and_play(current_question)  # Uncommented this line
+
+    # text_to_speech_and_play(current_question)  # Uncommented this line
 
     # Update the current question in the state
     state.update({
@@ -191,22 +193,11 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
 
     return state
 
+# Modified collect_response function to properly wait for input in Streamlit
 @tool(args_schema=StateParam)
 @handle_state_conversion
 def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Collects the candidate's response to the current question.
-
-    This tool handles collecting and evaluating the candidate's response to the current
-    interview question. It determines if the response indicates understanding or if the
-    question needs refinement. It also manages the interview flow by updating the plan
-    and internal flags appropriately.
-
-    Args:
-        state: The current interview state
-
-    Returns:
-        Updated interview state with the candidate's response and evaluation
-    """
+    """Collects the candidate's response to the current question."""
     # Initialize required state fields
     state['conversation_history'] = state.get('conversation_history', [])
     state['plan'] = state.get('plan', [])
@@ -218,12 +209,11 @@ def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Only collect response if there's a current question
     if state.get("current_question"):
-        # Get response from the candidate
-        # TODO: Replace with speech recognition when implemented
+        # Initialize session state for waiting if not exist
         response = input("A: ")
-
+            
         # Handle empty or very short responses
-        if not response or len(response.strip()) < 2:
+        if len(response.strip()) < 2:
             print("\nMoving to the next question...")
             # Mark as answered and move to next question
             if state['plan']:
@@ -252,19 +242,6 @@ def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
 
         # Only check for refinement if the question hasn't been refined yet
         if not state['_internal_flags'].get('question_refined'):
-            # Check if the response indicates confusion
-            confusion_indicators = ['hun', 'huh', 'what', 'idk', 'dunno', '?', 'sorry', 'not sure']
-            is_confused = (len(response.strip()) < 5 or
-                          any(indicator in response.strip().lower() for indicator in confusion_indicators))
-
-            if is_confused:
-                # Mark that the question needs refinement
-                state['_internal_flags'].update({
-                    'needs_refinement': True,
-                    'question_answered': False
-                })
-                state.update({'response': response})
-                return state
 
             # Use LLM to evaluate if the candidate understood the question
             messages = [
