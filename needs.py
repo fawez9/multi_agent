@@ -38,7 +38,6 @@ class State(TypedDict):
     name: str
     phone: str
     email: str
-    applied_role: str
     skills: List[str]
     plan: List[str]
     status: str
@@ -48,6 +47,7 @@ class State(TypedDict):
     report: str
     conversation_history: Annotated[List[Dict[str, str]], "List of conversation history"]
     _internal_flags: Dict[str, bool]
+    job_details: Dict[str, str]
 
 
 # Database configuration functions

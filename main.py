@@ -65,7 +65,7 @@ def generate_interview_plan(state: State):
     applied_role = state['job_details'].get('applied_role', 'Unknown Role')
     job_skills = state['job_details'].get('skills', [])
     job_description = state['job_details'].get('description', "No description available")
-    nb_questions = 3   #TODO : param for questions
+    nb_questions = 1   #TODO : param for questions
     try:
         # Generate questions using the RAG system
         #TODO : enhance the prompt to maintain a stable TTS
@@ -99,7 +99,7 @@ def generate_report(state: dict):
     report = [
         f"""
 ----------------Interview Report for {state['name']}------------------
-Position: {state['job_details'].get('applied_role', 'Unknown Role')}
+Position: {state['job_details']['applied_role']}
 Skills: {state['skills']}\n
 -----------------------Interview Scores-------------------------------
 """
