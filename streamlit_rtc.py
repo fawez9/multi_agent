@@ -8,6 +8,8 @@ import streamlit as st
 from dotenv import load_dotenv
 import google.generativeai as genai
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+from main import interview_flow
+from shared_state import shared_state
 
 load_dotenv()
 
@@ -21,84 +23,85 @@ model = genai.GenerativeModel('gemini-2.0-flash')
 llm_response = None
 last_process_time = 0
 processing_lock = threading.Lock()
+interview_lock = threading.Lock()
 latest_analysis = "No analysis yet"  # Variable to store the latest analysis
 
 # Configuration for frame collection and analysis
 ANALYSIS_INTERVAL = 10.0  # Analyze a frame every 10 seconds
 
-def analyze_interview_behavior(frame):
-    """Analyze a single frame for professional interview behavior assessment"""
-    global llm_response, latest_analysis
+# def analyze_interview_behavior(frame):
+#     """Analyze a single frame for professional interview behavior assessment"""
+#     global llm_response, latest_analysis
 
-    if frame is None:
-        return "No frame to analyze"
+#     if frame is None:
+#         return "No frame to analyze"
 
-    # Convert frame to PIL image
-    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    pil_image = Image.fromarray(img_rgb)
+#     # Convert frame to PIL image
+#     img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+#     pil_image = Image.fromarray(img_rgb)
 
-    # Create prompt focused on professional interview analysis
-    prompt = (
-        "You are an expert recruitment interviewer analyzing a candidate during a job interview. "
-        "Analyze this frame of an interview candidate and provide a professional assessment of:"
-        "\n1. Facial expressions and emotions (confidence, nervousness, engagement, etc.)"
-        "\n2. Body language and posture (professional vs. casual, attentive vs. distracted)"
-        "\n3. Eye contact and focus (maintaining appropriate eye contact or looking away)"
-        "\n4. Overall professional impression (how they would be perceived in a job interview)"
-        "\n\nProvide a concise 2-3 sentence professional assessment that would be useful for a recruiter. "
-        "Focus on both positive aspects and areas for improvement. Be specific and constructive."
-    )
+#     # Create prompt focused on professional interview analysis
+#     prompt = (
+#         "You are an expert recruitment interviewer analyzing a candidate during a job interview. "
+#         "Analyze this frame of an interview candidate and provide a professional assessment of:"
+#         "\n1. Facial expressions and emotions (confidence, nervousness, engagement, etc.)"
+#         "\n2. Body language and posture (professional vs. casual, attentive vs. distracted)"
+#         "\n3. Eye contact and focus (maintaining appropriate eye contact or looking away)"
+#         "\n4. Overall professional impression (how they would be perceived in a job interview)"
+#         "\n\nProvide a concise 2-3 sentence professional assessment that would be useful for a recruiter. "
+#         "Focus on both positive aspects and areas for improvement. Be specific and constructive."
+#     )
 
-    # Send to Gemini with the image
-    try:
-        content = [prompt, pil_image]
-        llm_response = model.generate_content(content)
-        result_text = llm_response.text
+#     # Send to Gemini with the image
+#     try:
+#         content = [prompt, pil_image]
+#         llm_response = model.generate_content(content)
+#         result_text = llm_response.text
 
-        # Update the latest analysis variable
-        latest_analysis = result_text
+#         # Update the latest analysis variable
+#         latest_analysis = result_text
 
-        # Print the analysis
-        print(f"\n--- New Analysis at {time.strftime('%H:%M:%S')} ---")
-        print(latest_analysis)
-        print("-----------------------------------")
+#         # Print the analysis
+#         print(f"\n--- New Analysis at {time.strftime('%H:%M:%S')} ---")
+#         print(latest_analysis)
+#         print("-----------------------------------")
 
-        return result_text
-    except Exception as e:
-        error_msg = f"Error: {str(e)}"
-        print(error_msg)
-        return error_msg
+#         return result_text
+#     except Exception as e:
+#         error_msg = f"Error: {str(e)}"
+#         print(error_msg)
+#         return error_msg
 
-class VideoProcessor(VideoProcessorBase):
-    """Video processor for real-time analysis of interview behavior"""
-    def __init__(self):
-        self.last_analysis_time = time.time()
-        self.analysis_count = 0
-        self.current_analysis = "Waiting for first analysis..."
+# class VideoProcessor(VideoProcessorBase):
+#     """Video processor for real-time analysis of interview behavior"""
+#     def __init__(self):
+#         self.last_analysis_time = time.time()
+#         self.analysis_count = 0
+#         self.current_analysis = "Waiting for first analysis..."
 
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        """Process each frame and analyze interview behavior"""
-        global llm_response, processing_lock, latest_analysis
+#     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+#         """Process each frame and analyze interview behavior"""
+#         global llm_response, processing_lock, latest_analysis
 
-        img = frame.to_ndarray(format="bgr24")
-        current_time = time.time()
+#         img = frame.to_ndarray(format="bgr24")
+#         current_time = time.time()
 
-        # Analyze a frame every 10 seconds
-        if current_time - self.last_analysis_time >= ANALYSIS_INTERVAL and not processing_lock.locked():
-            with processing_lock:
-                self.last_analysis_time = current_time
-                self.analysis_count += 1
+#         # Analyze a frame every 10 seconds
+#         if current_time - self.last_analysis_time >= ANALYSIS_INTERVAL and not processing_lock.locked():
+#             with processing_lock:
+#                 self.last_analysis_time = current_time
+#                 self.analysis_count += 1
 
-                # Process in a separate thread to avoid blocking the video stream
-                def process_frame():
-                    result = analyze_interview_behavior(img.copy())
-                    self.current_analysis = result
+#                 # Process in a separate thread to avoid blocking the video stream
+#                 def process_frame():
+#                     result = analyze_interview_behavior(img.copy())
+#                     self.current_analysis = result
 
-                threading.Thread(target=process_frame).start()
+#                 threading.Thread(target=process_frame).start()
 
-        # No text or status indicators on the camera feed
+#         # No text or status indicators on the camera feed
 
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+#         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # Set page configuration to wide mode for better layout control
 st.set_page_config(layout="wide")
@@ -207,34 +210,62 @@ h1, h2, h3 {
 chat_col, video_col = st.columns([3, 1])
 
 # Video component in the right column
-with video_col:
-    webrtc_ctx = webrtc_streamer(
-        key="behavior-monitor",
-        video_processor_factory=VideoProcessor,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True
-    )
-    st.markdown(f"""
-    <div class="video-container">
-        <h3 style="color: white; margin-top: 0; text-align: center; font-size: 16px;">Interview Camera</h3>
-    </div>
-    """,unsafe_allow_html=True)
+# with video_col:
+#     webrtc_ctx = webrtc_streamer(
+#         key="behavior-monitor",
+#         video_processor_factory=VideoProcessor,
+#         media_stream_constraints={"video": True, "audio": False},
+#         async_processing=True
+#     )
+#     st.markdown(f"""
+#     <div class="video-container">
+#         <h3 style="color: white; margin-top: 0; text-align: center; font-size: 16px;">Interview Camera</h3>
+#     </div>
+#     """,unsafe_allow_html=True)
 
 # Main chat content
 st.title("👁️ Interview Chat")
 
-# Initialize chat messages in session state if not already present
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# Initialize session state variables
+if "interview_started" not in st.session_state:
+    st.session_state.interview_started = False
+if "interview_thread" not in st.session_state:
+    st.session_state.interview_thread = None
 
-# Get user input from chat
-if user_input := st.chat_input("Type your message here..."):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": user_input})
+# Function to run interview flow in a separate thread
+def run_interview_flow():
+    try:
+        with interview_lock:
+            interview_flow.invoke({"messages": []}, config={"recursion_limit": 100})
+    except Exception as e:
+        print(f"Error in interview thread: {str(e)}")
 
-# Display chat messages
-for message in st.session_state.messages:
+# Start the interview thread if not already started
+if not st.session_state.interview_started:
+    st.session_state.interview_started = True
+    # Create and start the interview thread
+    st.session_state.interview_thread = threading.Thread(target=run_interview_flow)
+    st.session_state.interview_thread.daemon = True  # Make thread exit when main thread exits
+    st.session_state.interview_thread.start()
+    print("Interview thread started")
+
+
+# Handle user input
+user_input = st.chat_input("Enter your response:")
+if user_input:
+    # Display user message
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    # Add to shared state messages
+    shared_state.add_message("user", user_input)
+
+    # Set the user response in shared state
+    shared_state.set_user_response(user_input)
+
+
+
+# Display chat messages from shared state
+for message in shared_state.get_messages():
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-
-

@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # Local imports
 from stt_tts import text_to_speech_and_play
 from needs import llm, State
-import streamlit as st
+from shared_state import shared_state
 
 class StateParam(BaseModel):
     """Pydantic model for the state parameter.
@@ -145,6 +145,13 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
         if not state['_internal_flags'].get('thank_you_presented', False):
             thank_you_message = f"Thank you, {state.get('name', 'candidate')}, for participating in this interview. We appreciate your time and responses."
             print(f"\n{thank_you_message}")
+
+            # Add the thank you message to shared state messages
+            shared_state.add_message("assistant", thank_you_message)
+
+            # Mark the interview as complete in shared state
+            shared_state.mark_interview_complete()
+
             # text_to_speech_and_play(thank_you_message)
 
             # Mark that the thank you message has been presented
@@ -184,6 +191,9 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
     # Present the question to the candidate
     print(f"\nQ: {current_question}")
 
+    # Add the question to shared state messages
+    shared_state.add_message("assistant", current_question)
+
     # text_to_speech_and_play(current_question)  # Uncommented this line
 
     # Update the current question in the state
@@ -193,7 +203,7 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
 
     return state
 
-# Modified collect_response function to properly wait for input in Streamlit
+# Modified collect_response function to work with shared state
 @tool(args_schema=StateParam)
 @handle_state_conversion
 def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -209,12 +219,13 @@ def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Only collect response if there's a current question
     if state.get("current_question"):
-        # Initialize session state for waiting if not exist
-        response = input("A: ")
-            
+        # Wait for user input using shared state
+        print("Waiting for user response...")
+        response = shared_state.get_user_response(timeout=60)
+
         # Handle empty or very short responses
-        if len(response.strip()) < 2:
-            print("\nMoving to the next question...")
+        if response is None or len(str(response).strip()) < 2:
+            print("\nMoving to the next question due to empty or timeout response...")
             # Mark as answered and move to next question
             if state['plan']:
                 state['plan'].pop(0)
@@ -249,8 +260,34 @@ def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
                 HumanMessage(content=f"Did the candidate understand this question: '{state['current_question']}' based on their answer: '{response}'?")
             ]
 
-            check = llm.invoke(messages)
-            time.sleep(1)
+            # Add a small delay to prevent rate limiting
+            time.sleep(0.5)
+
+            try:
+                # Get the evaluation with retry logic
+                max_retries = 2
+                for attempt in range(max_retries):
+                    try:
+                        check = llm.invoke(messages)
+                        break
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            print(f"Error checking response understanding (attempt {attempt+1}): {str(e)}. Retrying...")
+                            time.sleep(1.5 * (attempt + 1))  # Exponential backoff
+                        else:
+                            print(f"Failed to check response after {max_retries} attempts: {str(e)}")
+                            # Default to accepting the response if we can't check it
+                            check_content = "yes"
+                            check = type('obj', (object,), {'content': check_content})
+                            break
+
+                # Add a small delay to prevent rate limiting
+                time.sleep(0.5)
+            except Exception as e:
+                print(f"Unexpected error in collect_response: {str(e)}")
+                # Default to accepting the response
+                check_content = "yes"
+                check = type('obj', (object,), {'content': check_content})
 
             if 'no' in check.content.lower():
                 # Mark that the question needs refinement
@@ -331,9 +368,34 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
             """)
         ]
 
-        # Get the refined question from the LLM
-        refined = llm.invoke(messages)
-        time.sleep(1)
+        # Add a small delay to prevent rate limiting
+        time.sleep(0.5)
+
+        try:
+            # Get the refined question from the LLM with retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    refined = llm.invoke(messages)
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"Error refining question (attempt {attempt+1}): {str(e)}. Retrying...")
+                        time.sleep(2 * (attempt + 1))  # Exponential backoff
+                    else:
+                        print(f"Failed to refine question after {max_retries} attempts: {str(e)}")
+                        # Provide a simple refinement as fallback
+                        refined_content = f"Let me rephrase: {state.get('current_question', '')}. Could you please answer this question?"
+                        refined = type('obj', (object,), {'content': refined_content})
+                        break
+
+            # Add a small delay to prevent rate limiting
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"Unexpected error in refine_question: {str(e)}")
+            # Provide a simple refinement as fallback
+            refined_content = f"Let me rephrase: {state.get('current_question', '')}. Could you please answer this question?"
+            refined = type('obj', (object,), {'content': refined_content})
 
         # Extract and record the refined question
         refined_question = refined.content.strip()
@@ -462,8 +524,24 @@ def start_interview_agent(state: Union[State, Dict[str, Any]]):
         The final interview state after completion
     """
     try:
-        # Create a working copy of the state
-        working_state = state.copy() if hasattr(state, 'copy') else state.copy()
+        # Create a working copy of the state, only including essential fields
+        # This reduces memory usage by not carrying around large conversation histories
+        essential_fields = [
+            'name', 'plan', 'status', 'nb_questions', 'current_question',
+            'response', '_internal_flags', 'job_details'
+        ]
+
+        # Create a minimal working state with only essential fields
+        working_state = {}
+        source_state = state.copy() if hasattr(state, 'copy') else state.copy()
+
+        for field in essential_fields:
+            if field in source_state:
+                working_state[field] = source_state[field]
+
+        # Ensure we have the conversation_history and scores arrays, but don't copy all their contents
+        working_state['conversation_history'] = source_state.get('conversation_history', [])[-5:] if 'conversation_history' in source_state else []
+        working_state['scores'] = source_state.get('scores', [])
 
         # Print interview start message
         print(f"\nStarting interview for {working_state.get('name', 'candidate')} ...")
@@ -486,11 +564,33 @@ def start_interview_agent(state: Union[State, Dict[str, Any]]):
         # Set max_iterations with a small buffer to prevent premature termination
         max_iterations = base_iterations + 2
 
-        # Run the agent with the calculated max_iterations
-        result = agent.invoke({"input": working_state}, max_iterations=max_iterations)
+        # Add retry logic for agent invocation
+        max_retries = 2
+        last_error = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                # Run the agent with the calculated max_iterations
+                result = agent.invoke({"input": working_state}, max_iterations=max_iterations)
+
+                # If we get here, the invocation succeeded
+                last_error = None
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    print(f"Error in agent invocation (attempt {attempt+1}): {str(e)}. Retrying...")
+                    # Reduce state size further for retry
+                    if 'conversation_history' in working_state:
+                        working_state['conversation_history'] = working_state['conversation_history'][-2:] if working_state['conversation_history'] else []
+                    time.sleep(2 * (attempt + 1))  # Exponential backoff
+
+        # If all retries failed, raise the last error
+        if last_error is not None:
+            raise last_error
 
         # Brief pause to allow any pending output to complete
-        time.sleep(1)
+        time.sleep(0.5)
 
         # Update working state with results from all intermediate steps
         if result.get("intermediate_steps"):
@@ -502,21 +602,51 @@ def start_interview_agent(state: Union[State, Dict[str, Any]]):
         if 'plan' in working_state and not working_state.get('plan'):
             working_state['status'] = 'Plan Complete'
 
-        # Update the original state object
+        # Make sure we preserve the scores from the working state
+        if 'scores' in working_state:
+            source_state['scores'] = working_state['scores']
+
+        # Update the original state object with only the essential updated fields
+        # This prevents overwriting fields we didn't include in the working state
+        update_fields = [
+            'status', 'current_question', 'response', '_internal_flags',
+            'plan', 'scores'
+        ]
+
         if isinstance(state, dict):
-            state.clear()
-            state.update(working_state)
+            for field in update_fields:
+                if field in working_state:
+                    state[field] = working_state[field]
         else:
             # If it's a State object, update its attributes
-            for key, value in working_state.items():
-                setattr(state, key, value)
+            for field in update_fields:
+                if field in working_state:
+                    setattr(state, field, working_state[field])
 
         return working_state
 
     except Exception as e:
         print(f"Error in start_interview_agent: {str(e)}")
         traceback.print_exc()
-        return {"status": "Error", "error": str(e)}
+
+        # Create a minimal error state that won't cause further issues
+        error_state = {
+            "status": "Error",
+            "error": str(e),
+            "plan": [],  # Empty plan to signal completion
+            "_internal_flags": {"interview_complete": True}
+        }
+
+        # Update the original state to prevent further processing
+        if isinstance(state, dict):
+            state["status"] = "Error"
+            state["error"] = str(e)
+            if "_internal_flags" in state:
+                state["_internal_flags"]["interview_complete"] = True
+            else:
+                state["_internal_flags"] = {"interview_complete": True}
+
+        return error_state
 
 if __name__ == "__main__":
     # Test state for running the interview agent directly
