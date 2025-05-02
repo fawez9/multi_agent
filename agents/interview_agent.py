@@ -14,9 +14,9 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
 # Local imports
-from stt_tts import text_to_speech_and_play
-from needs import llm, State
-from shared_state import shared_state
+from utils.stt_tts import text_to_speech_and_play
+from utils.needs import llm, State
+from utils.shared_state import shared_state
 
 class StateParam(BaseModel):
     """Pydantic model for the state parameter.

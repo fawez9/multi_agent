@@ -10,8 +10,8 @@ from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 
-from core_rag import rag
-from needs import llm, State
+from rag.core_rag import rag
+from utils.needs import llm, State
 
 class StateParam(BaseModel):
     """Pydantic model for the state parameter."""

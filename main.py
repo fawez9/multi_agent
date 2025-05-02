@@ -1,13 +1,13 @@
 import time
-import candidate
-from needs import State
-from core_rag import rag
+import utils.candidate as candidate
+from utils.needs import State
+from rag.core_rag import rag
 from langgraph.graph import StateGraph
 from database_store import store_interview_data
-from interview_agent import start_interview_agent
-from evaluation_agent import start_evaluation_agent
-from stt_tts import text_to_speech_and_play
-from shared_state import shared_state
+from agents.interview_agent import start_interview_agent
+from agents.evaluation_agent import start_evaluation_agent
+from utils.stt_tts import text_to_speech_and_play
+from utils.shared_state import shared_state
 
 
 def start_interview(state: State):

@@ -3,7 +3,7 @@ import time
 import traceback
 from typing import Dict, Any
 
-from needs import close_connection_pool, connection_pool, State
+from utils.needs import close_connection_pool, connection_pool, State
 
 
 def check_candidate_exists(state: Dict[str, Any]) -> Dict[str, Any]:

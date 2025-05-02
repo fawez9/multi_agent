@@ -1,8 +1,8 @@
 import json
 import time
 from typing import Dict, Union, List, Tuple
-from core_rag import rag
-from needs import engine
+from rag.core_rag import rag
+from utils.needs import engine
 
 def get_candidate_details(candidate_name):
     """Fetch candidate details from the database based on candidate name"""

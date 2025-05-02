@@ -7,7 +7,7 @@ from langchain.schema import Document
 from typing import Optional, List, Union, Dict
 from langchain_postgres.vectorstores import PGVector
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
-from needs import (
+from utils.needs import (
     llm, 
     embeddings, 
     connection, 

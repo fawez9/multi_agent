@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 from main import interview_flow
-from shared_state import shared_state
+from utils.shared_state import shared_state
 
 load_dotenv()
 
