@@ -8,6 +8,8 @@ import streamlit as st
 from dotenv import load_dotenv
 import google.generativeai as genai
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+# Import the streamlit_autorefresh component
+from streamlit_autorefresh import st_autorefresh
 from main import interview_flow
 from utils.shared_state import shared_state
 
@@ -105,6 +107,44 @@ ANALYSIS_INTERVAL = 10.0  # Analyze a frame every 10 seconds
 
 # Set page configuration to wide mode for better layout control
 st.set_page_config(layout="wide")
+
+# Initialize session state for message tracking if not already done
+if "last_message_count" not in st.session_state:
+    st.session_state.last_message_count = 0
+
+# Add flag to track if we just submitted a message
+if "just_submitted_input" not in st.session_state:
+    st.session_state.just_submitted_input = False
+if "skip_next_refresh" not in st.session_state:
+    st.session_state.skip_next_refresh = False
+    
+# Track the last time the UI was updated to detect changes
+if "last_update_timestamp" not in st.session_state:
+    st.session_state.last_update_timestamp = 0
+
+# Add auto-refresh component with more responsive interval
+count = st_autorefresh(interval=1000, key="chat_refresh")  # 1 second refresh
+
+# Check for new messages since last refresh
+current_message_count = len(shared_state.get_messages())
+current_timestamp = shared_state.get_last_update_time()
+
+# Check if we need to force a rerun based on changes
+if (current_message_count > st.session_state.last_message_count or 
+    current_timestamp > st.session_state.last_update_timestamp):
+    
+    st.session_state.last_message_count = current_message_count
+    st.session_state.last_update_timestamp = current_timestamp
+    
+    # Only rerun if we didn't just submit input (to avoid race conditions)
+    if not st.session_state.just_submitted_input:
+        print(f"UI refresh triggered: {current_message_count} messages, last update at {time.strftime('%H:%M:%S', time.localtime(current_timestamp))}")
+        # Force Streamlit to rerun immediately to show new messages
+        st.rerun()
+
+# Reset the just_submitted_input flag if it was set
+if st.session_state.just_submitted_input:
+    st.session_state.just_submitted_input = False
 
 # Add custom CSS to style the page and video component
 st.markdown("""
@@ -253,19 +293,26 @@ if not st.session_state.interview_started:
 # Handle user input
 user_input = st.chat_input("Enter your response:")
 if user_input:
-    # Display user message
-    with st.chat_message("user"):
-        st.markdown(user_input)
-
-    # Add to shared state messages
-    shared_state.add_message("user", user_input)
-
+    # Don't display user message immediately - it will be shown from the shared_state
+    
     # Set the user response in shared state
+    # Note: set_user_response internally calls add_message so we don't need to call it separately
     shared_state.set_user_response(user_input)
-
-
+    
+    # Set the just_submitted_input flag and skip the next refresh
+    st.session_state.just_submitted_input = True
+    st.session_state.skip_next_refresh = True
+    
+    # Update the message count to include this new message
+    st.session_state.last_message_count = len(shared_state.get_messages())
 
 # Display chat messages from shared state
-for message in shared_state.get_messages():
+messages = shared_state.get_messages()
+
+# Display all messages
+for message in messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+
+# Update the message count tracker to avoid showing duplicates on refresh
+st.session_state.last_message_count = len(messages)

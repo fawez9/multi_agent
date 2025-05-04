@@ -175,28 +175,33 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
     current_question = plan[0]
 
     # Check if this is a new question (not a refined version of the current question)
-    if state.get('current_question', '') != current_question and not state['_internal_flags'].get('question_refined', False):
+    is_new_question = state.get('current_question', '') != current_question and not state['_internal_flags'].get('question_refined', False)
+    
+    if is_new_question:
         # Reset refinement flags for new questions
         state['_internal_flags']['question_refined'] = False
         state['_internal_flags']['needs_refinement'] = False
 
-    # Track the question presentation in conversation history
-    question_event = {
-        'event_type': 'present_question',
-        'question': current_question,
-        'is_refined': state['_internal_flags'].get('question_refined', False),
-    }
-    state['conversation_history'].append(question_event)
+    # Skip adding to UI if question was just refined (refine_question already added it)
+    if not state['_internal_flags'].get('question_refined', False) or is_new_question:
+        # Track the question presentation in conversation history
+        question_event = {
+            'event_type': 'present_question',
+            'question': current_question,
+            'is_refined': state['_internal_flags'].get('question_refined', False),
+        }
+        state['conversation_history'].append(question_event)
 
-    # Present the question to the candidate
-    print(f"\nQ: {current_question}")
+        # Present the question to the candidate
+        print(f"\nQ: {current_question}")
 
-    # Add the question to shared state messages
-    shared_state.add_message("assistant", current_question)
+        # Add the question to shared state messages - only for new questions, not refined ones
+        shared_state.add_message("assistant", current_question)
+        
+        # Add a short delay to ensure UI updates
+        time.sleep(0.5)
 
-    # text_to_speech_and_play(current_question)  # Uncommented this line
-
-    # Update the current question in the state
+    # Update the current question in the state regardless
     state.update({
         'current_question': current_question,
     })
@@ -252,6 +257,7 @@ def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
         state['conversation_history'].append(conversation_event)
 
         # Only check for refinement if the question hasn't been refined yet
+
         if not state['_internal_flags'].get('question_refined'):
 
             # Use LLM to evaluate if the candidate understood the question
@@ -352,6 +358,9 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
     if state['_internal_flags'].get('needs_refinement', False) and not state['_internal_flags'].get('question_refined', False):
         print("\nRefining question for better clarity...")
 
+        # Get the current question to refine
+        current_question = state.get('current_question', '')
+
         # Prepare the prompt for the LLM to refine the question
         messages = [
             SystemMessage(content="""
@@ -361,7 +370,7 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
             Maintain the same topic and difficulty level.
             """),
             HumanMessage(content=f"""
-            Original question: {state.get('current_question', '')}
+            Original question: {current_question}
             Candidate's response: {state.get('response', '')}
 
             Please provide only the refined question without any additional text.
@@ -385,7 +394,7 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
                     else:
                         print(f"Failed to refine question after {max_retries} attempts: {str(e)}")
                         # Provide a simple refinement as fallback
-                        refined_content = f"Let me rephrase: {state.get('current_question', '')}. Could you please answer this question?"
+                        refined_content = f"Let me rephrase: {current_question}. Could you please answer this question?"
                         refined = type('obj', (object,), {'content': refined_content})
                         break
 
@@ -394,16 +403,26 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             print(f"Unexpected error in refine_question: {str(e)}")
             # Provide a simple refinement as fallback
-            refined_content = f"Let me rephrase: {state.get('current_question', '')}. Could you please answer this question?"
+            refined_content = f"Let me rephrase: {current_question}. Could you please answer this question?"
             refined = type('obj', (object,), {'content': refined_content})
 
         # Extract and record the refined question
         refined_question = refined.content.strip()
+        
+        # Create a refinement event for conversation history
         refinement_event = {
             'event_type': 'refine_question',
+            'original_question': current_question,
             'refined_question': refined_question
         }
         state['conversation_history'].append(refinement_event)
+
+        # Format the refined question with a prefix
+        prefixed_refined_question = f"Let me rephrase: {refined_question}"
+        
+        # Add the refined question as a new message (not updating the old one)
+        shared_state.add_refined_message("assistant", prefixed_refined_question, current_question)
+        print(f"Added refined question to the chat: '{prefixed_refined_question}'")
 
         # Replace the current question in the plan with the refined version
         if state['plan']:
@@ -414,6 +433,10 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
             'needs_refinement': False,
             'question_refined': True
         })
+        
+        # Add a short pause to ensure the UI has time to refresh
+        time.sleep(1)
+        
     elif state['_internal_flags'].get('question_refined', False) and state['_internal_flags'].get('needs_refinement', False):
         # If the question has already been refined once, move to the next question
         print("\nQuestion was already refined once. Moving to the next question.")
@@ -437,7 +460,7 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 def create_interview_agent(llm):
-    """Creates an agent that conducts the interview.
+    """Creates an agent that conducts an interview.
 
     This function creates a LangChain agent with the necessary tools and prompt
     to conduct an interview. The agent follows a specific protocol for asking questions,

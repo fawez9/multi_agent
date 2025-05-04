@@ -7,6 +7,7 @@ import threading
 import queue
 import time
 import json
+import uuid
 from typing import Any, Optional, List, Dict
 
 # Constants for optimization
@@ -35,6 +36,7 @@ class SharedState:
         self.current_response = None
         self.messages = []
         self.interview_complete = False
+        self.last_message_timestamp = time.time()  # Track when messages were last updated
 
         # Add more granular locks
         self.message_lock = threading.RLock()  # Reentrant lock for message operations
@@ -46,7 +48,14 @@ class SharedState:
 
     def add_message(self, role: str, content: str):
         """Add a message to the messages list with pruning if needed."""
-        message = {"role": role, "content": content, "timestamp": time.time()}
+        message_id = str(uuid.uuid4())
+        message = {
+            "role": role, 
+            "content": content, 
+            "timestamp": time.time(),
+            "message_id": message_id,
+            "is_refinement": False
+        }
 
         # Use a timeout to prevent deadlocks
         if not self.message_lock.acquire(timeout=MESSAGE_LOCK_TIMEOUT):
@@ -62,6 +71,35 @@ class SharedState:
                 self.messages = self.messages[-(MAX_MESSAGES-1):]
 
             self.messages.append(message)
+            self.last_message_timestamp = time.time()
+            return message
+        finally:
+            self.message_lock.release()
+
+    def add_refined_message(self, role: str, content: str, original_content: str = ""):
+        """Add a refined version of a message, preserving conversational flow."""
+        # Create a unique ID for this refined message
+        message_id = str(uuid.uuid4())
+        message = {
+            "role": role, 
+            "content": content, 
+            "timestamp": time.time(),
+            "message_id": message_id,
+            "is_refinement": True,
+            "original_content": original_content
+        }
+
+        # Use a timeout to prevent deadlocks
+        if not self.message_lock.acquire(timeout=MESSAGE_LOCK_TIMEOUT):
+            print("Warning: Could not acquire message lock, skipping refinement addition")
+            return None
+
+        try:
+            # Always add refinements as new messages rather than updating existing ones
+            # This preserves conversation flow and ensures UI updates
+            self.messages.append(message)
+            self.last_message_timestamp = time.time()
+            print(f"Added refined message. Original: '{original_content[:30]}...' -> New: '{content[:30]}...'")
             return message
         finally:
             self.message_lock.release()
@@ -72,6 +110,11 @@ class SharedState:
             if limit is None:
                 return self.messages
             return self.messages[-limit:]
+            
+    def get_last_update_time(self):
+        """Get the timestamp of the last message update."""
+        with self.message_lock:
+            return self.last_message_timestamp
 
     def get_context_messages(self):
         """Get messages formatted for model context, including summary of older messages."""
@@ -129,10 +172,23 @@ class SharedState:
             return
 
         try:
+            # Make sure we store the message in messages list first, before setting as response
+            # This ensures the message is displayed immediately even if auto-refresh happens
+            self.add_message("user", response)
+            
             self.current_response = response
             self.response_ready = True
+            
             # Also add to queue for backward compatibility
             try:
+                # Clear the queue first to avoid any race conditions
+                while not self.user_input_queue.empty():
+                    try:
+                        self.user_input_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    
+                # Now add the new response
                 self.user_input_queue.put(response, block=False)
             except queue.Full:
                 # Clear the queue if it's full
