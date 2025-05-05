@@ -1,109 +1,27 @@
 import os
-import av
-import cv2
 import time
 import threading
-from PIL import Image
 import streamlit as st
 from dotenv import load_dotenv
 import google.generativeai as genai
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+from streamlit_webrtc import webrtc_streamer
 # Import the streamlit_autorefresh component
 from streamlit_autorefresh import st_autorefresh
 from main import interview_flow
 from utils.shared_state import shared_state
+# Import the video processor
+from video_processor import create_video_processor
 
 load_dotenv()
 
 # --- Set your Gemini API key ---
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY2"))
 
 # Load the model (only once)
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 # Global variables
-llm_response = None
-last_process_time = 0
-processing_lock = threading.Lock()
 interview_lock = threading.Lock()
-latest_analysis = "No analysis yet"  # Variable to store the latest analysis
-
-# Configuration for frame collection and analysis
-ANALYSIS_INTERVAL = 10.0  # Analyze a frame every 10 seconds
-
-# def analyze_interview_behavior(frame):
-#     """Analyze a single frame for professional interview behavior assessment"""
-#     global llm_response, latest_analysis
-
-#     if frame is None:
-#         return "No frame to analyze"
-
-#     # Convert frame to PIL image
-#     img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-#     pil_image = Image.fromarray(img_rgb)
-
-#     # Create prompt focused on professional interview analysis
-#     prompt = (
-#         "You are an expert recruitment interviewer analyzing a candidate during a job interview. "
-#         "Analyze this frame of an interview candidate and provide a professional assessment of:"
-#         "\n1. Facial expressions and emotions (confidence, nervousness, engagement, etc.)"
-#         "\n2. Body language and posture (professional vs. casual, attentive vs. distracted)"
-#         "\n3. Eye contact and focus (maintaining appropriate eye contact or looking away)"
-#         "\n4. Overall professional impression (how they would be perceived in a job interview)"
-#         "\n\nProvide a concise 2-3 sentence professional assessment that would be useful for a recruiter. "
-#         "Focus on both positive aspects and areas for improvement. Be specific and constructive."
-#     )
-
-#     # Send to Gemini with the image
-#     try:
-#         content = [prompt, pil_image]
-#         llm_response = model.generate_content(content)
-#         result_text = llm_response.text
-
-#         # Update the latest analysis variable
-#         latest_analysis = result_text
-
-#         # Print the analysis
-#         print(f"\n--- New Analysis at {time.strftime('%H:%M:%S')} ---")
-#         print(latest_analysis)
-#         print("-----------------------------------")
-
-#         return result_text
-#     except Exception as e:
-#         error_msg = f"Error: {str(e)}"
-#         print(error_msg)
-#         return error_msg
-
-# class VideoProcessor(VideoProcessorBase):
-#     """Video processor for real-time analysis of interview behavior"""
-#     def __init__(self):
-#         self.last_analysis_time = time.time()
-#         self.analysis_count = 0
-#         self.current_analysis = "Waiting for first analysis..."
-
-#     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-#         """Process each frame and analyze interview behavior"""
-#         global llm_response, processing_lock, latest_analysis
-
-#         img = frame.to_ndarray(format="bgr24")
-#         current_time = time.time()
-
-#         # Analyze a frame every 10 seconds
-#         if current_time - self.last_analysis_time >= ANALYSIS_INTERVAL and not processing_lock.locked():
-#             with processing_lock:
-#                 self.last_analysis_time = current_time
-#                 self.analysis_count += 1
-
-#                 # Process in a separate thread to avoid blocking the video stream
-#                 def process_frame():
-#                     result = analyze_interview_behavior(img.copy())
-#                     self.current_analysis = result
-
-#                 threading.Thread(target=process_frame).start()
-
-#         # No text or status indicators on the camera feed
-
-#         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # Set page configuration to wide mode for better layout control
 st.set_page_config(layout="wide")
@@ -250,18 +168,36 @@ h1, h2, h3 {
 chat_col, video_col = st.columns([3, 1])
 
 # Video component in the right column
-# with video_col:
-#     webrtc_ctx = webrtc_streamer(
-#         key="behavior-monitor",
-#         video_processor_factory=VideoProcessor,
-#         media_stream_constraints={"video": True, "audio": False},
-#         async_processing=True
-#     )
-#     st.markdown(f"""
-#     <div class="video-container">
-#         <h3 style="color: white; margin-top: 0; text-align: center; font-size: 16px;">Interview Camera</h3>
-#     </div>
-#     """,unsafe_allow_html=True)
+with video_col:
+    webrtc_ctx = webrtc_streamer(
+        key="behavior-monitor",
+        video_processor_factory=create_video_processor(model),
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True
+    )
+    
+    # Add code to update shared state with facial analysis
+    if webrtc_ctx.video_processor:
+        # Set up a thread to periodically update the facial analysis in shared state
+        if "facial_analysis_thread" not in st.session_state:
+            def update_facial_analysis():
+                while True:
+                    if webrtc_ctx.video_processor:
+                        analysis = webrtc_ctx.video_processor.get_latest_analysis()
+                        shared_state.update_facial_analysis(analysis)
+                        print(f"Updated facial analysis: {analysis[:50]}...")
+                    time.sleep(2)  # Update every 2 seconds
+                    
+            # Start the update thread
+            facial_analysis_thread = threading.Thread(target=update_facial_analysis, daemon=True)
+            facial_analysis_thread.start()
+            st.session_state.facial_analysis_thread = facial_analysis_thread
+    
+    st.markdown(f"""
+    <div class="video-container">
+        <h3 style="color: white; margin-top: 0; text-align: center; font-size: 16px;">Interview Camera</h3>
+    </div>
+    """,unsafe_allow_html=True)
 
 # Main chat content
 st.title("👁️ Interview Chat")

@@ -251,6 +251,16 @@ class SharedState:
             except queue.Empty:
                 pass
 
+    def update_facial_analysis(self, analysis: str):
+        """Update the facial analysis data"""
+        with self._lock:
+            self._facial_analysis = analysis
+            
+    def get_facial_analysis(self) -> str:
+        """Get the latest facial analysis data"""
+        with self._lock:
+            return getattr(self, '_facial_analysis', "No analysis yet")
+
     def is_interview_complete(self) -> bool:
         """Check if the interview is complete."""
         with self._lock:

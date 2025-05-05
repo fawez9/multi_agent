@@ -71,10 +71,27 @@ def evaluate_response(state: Dict[str, Any]) -> Dict[str, Any]:
         conversation_history = state.get('conversation_history', [])
         scores = state.get('scores', [])
 
+        # Debug information about scores
+        print(f"\nEvaluation agent received {len(scores)} scores to evaluate")
+        
         # Get job details with fallbacks if not present
         job_details = state.get('job_details', {})
         job_skills = job_details.get('skills', 'Not specified')
         job_description = job_details.get('description', 'Not specified')
+        
+        # Get facial analysis from the latest score if available
+        latest_analysis = "No facial analysis available"
+        if scores and isinstance(scores[-1], dict):
+            if 'facial_analysis' in scores[-1]:
+                latest_analysis = scores[-1]['facial_analysis']
+                print(f"Found facial analysis in scores: {latest_analysis[:50]}...")
+            else:
+                print("No facial_analysis key found in the latest score")
+                print(f"Available keys in latest score: {list(scores[-1].keys())}")
+        else:
+            print(f"Scores is empty or not a dictionary: {type(scores)}")
+        
+        print(f"Latest facial analysis status: {'Available' if latest_analysis != 'No facial analysis available' else 'Not available'}")
 
         # Track which scores have been updated
         updated_scores = []
@@ -89,9 +106,10 @@ def evaluate_response(state: Dict[str, Any]) -> Dict[str, Any]:
             # Create evaluation prompt
             #NOTE : we can change the prompt to analyze the response tone as needed
             prompt = f"""
-            Evaluate this response concisely based on candidate's profile and these provided infos and analyze the tone if it was positive or negative:
+            Evaluate this response concisely based on candidate's profile and these provided infos and analyze the tone if it was positive or negative (nlp) also u have the facial expression analysis of the candidate at the time of the response:
             Question: {score.get('question', 'Not provided')}
             Response: {score.get('response', 'Not provided')}
+            Candidate Facial Expression: {latest_analysis}
             Conversation History: {conversation_history}
             Job Requirements: {job_skills} {job_description}
             Give a score (0-10) and a short justification (1-2 sentences).

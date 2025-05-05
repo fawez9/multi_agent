@@ -18,6 +18,7 @@ from utils.stt_tts import text_to_speech_and_play
 from utils.needs import llm, State
 from utils.shared_state import shared_state
 
+
 class StateParam(BaseModel):
     """Pydantic model for the state parameter.
 
@@ -319,6 +320,7 @@ def collect_response(state: Dict[str, Any]) -> Dict[str, Any]:
         scores = {
             'question': state.get('current_question', ''),
             'response': response,
+            'facial_analysis': shared_state.get_facial_analysis(),
             'evaluation': ''  # TODO: Add evaluation of response quality
         }
         state['scores'].append(scores)
