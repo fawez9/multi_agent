@@ -3,7 +3,6 @@
 .vscode
 __pycache__
 test.py
-facial_tone_analysis.py
 knowledge_base
 new_docs
 vectorstores
@@ -11,7 +10,6 @@ interview_db.ini
 config.py
 querries
 test2.py
-index.html
-simple-ui.html
-simple_server.py
-pure_video_stream.py
+rag/
+agents/
+utils/
