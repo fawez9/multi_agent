@@ -22,7 +22,7 @@ from langchain_google_genai import (
 )
 
 # Local imports
-from config import config
+from utils.config import config
 
 # Load environment variables at module import time
 load_dotenv()
