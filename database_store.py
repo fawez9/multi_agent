@@ -23,11 +23,14 @@ def check_candidate_exists(state: Dict[str, Any]) -> Dict[str, Any]:
         result = cursor.fetchone()
 
         if result:
-            return {"exists": True, "id": result[0]}
-        return {"exists": False}
+            print(f"Candidate exists with ID: {result[0]}")
+            # Return both exists flag and id in a consistent format
+            return {"exists": True, "id": result[0], "status": "success"}
+        print("Candidate does not exist.")
+        return {"exists": False, "status": "success"}
     except Exception as e:
         print(f"Error at check_candidate_exists: {str(e)}")
-        return {"error": str(e)}
+        return {"error": str(e), "status": "error"}
     finally:
         cursor.close()
         connection_pool.putconn(conn)
@@ -36,92 +39,148 @@ def check_candidate_exists(state: Dict[str, Any]) -> Dict[str, Any]:
 def create_report(state: Dict[str, Any]) -> Dict[str, Any]:
     """Create a new report for a candidate."""
 
-    conn = connection_pool.getconn()
-    cursor = conn.cursor()
+    conn = None
     try:
+        conn = connection_pool.getconn()
+        cursor = conn.cursor()
+        
         candidate_id = state.get('id')
-
         if not candidate_id:
+            print("Error: Candidate ID is required")
             return {"error": "Candidate ID is required"}
+            
+        print(f"Creating report for candidate ID: {candidate_id}")
         cursor.execute("""
             INSERT INTO reports (candidate_id)
             VALUES (%s)
             RETURNING id;
         """, (candidate_id,))
+        
         report_id = cursor.fetchone()[0]
         conn.commit()
-
+        print(f"Report created successfully with ID: {report_id}")
         return {"report_id": report_id}
+        
     except Exception as e:
-        conn.rollback()
-        print(f"Error at create_report: {str(e)}")
+        if conn:
+            conn.rollback()
+        print(f"Error creating report: {str(e)}")
         return {"error": str(e)}
     finally:
-        cursor.close()
-        connection_pool.putconn(conn)
+        if conn:
+            cursor.close()
+            connection_pool.putconn(conn)
 
 def store_interview_scores(state: Dict[str, Any]) -> Dict[str, Any]:
     """Store interview scores in the database."""
 
-    conn = connection_pool.getconn()
-    cursor = conn.cursor()
+    conn = None
     try:
+        conn = connection_pool.getconn()
+        cursor = conn.cursor()
+        
         report_id = state.get('report_id')
         scores = state.get('scores', [])
 
         if not report_id:
+            print("Error: Report ID is required for storing scores")
             return {"error": "Report ID is required"}
+            
+        if not scores:
+            print("Warning: No scores to store")
+            return {"status": "success", "message": "No scores to store"}
+
+        print(f"Storing {len(scores)} interview scores for report ID: {report_id}")
+        stored_count = 0
         for score in scores:
-            cursor.execute("""
-                INSERT INTO interview_scores (report_id, question, response, evaluation)
-                VALUES (%s, %s, %s, %s);
-            """, (
-                report_id,
-                score.get('question'),
-                score.get('response'),
-                score.get('evaluation')
-            ))
+            try:
+                cursor.execute("""
+                    INSERT INTO interview_scores (report_id, question, response, evaluation)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id;
+                """, (
+                    report_id,
+                    score.get('question'),
+                    score.get('response'),
+                    score.get('evaluation')
+                ))
+                score_id = cursor.fetchone()[0]
+                stored_count += 1
+                print(f"Stored score {stored_count}/{len(scores)} with ID: {score_id}")
+            except Exception as e:
+                print(f"Error storing individual score: {str(e)}")
+                conn.rollback()
+                continue
+
         conn.commit()
-        return {"status": "success"}
+        print(f"Successfully stored {stored_count} out of {len(scores)} scores")
+        return {"status": "success", "scores_stored": stored_count}
+        
     except Exception as e:
-        conn.rollback()
-        print(f"Error at store_interview_scores: {str(e)}")
+        if conn:
+            conn.rollback()
+        print(f"Error storing interview scores: {str(e)}")
         return {"error": str(e)}
     finally:
-        cursor.close()
-        connection_pool.putconn(conn)
+        if conn:
+            cursor.close()
+            connection_pool.putconn(conn)
 
 def store_conversation_history(state: Dict[str, Any]) -> Dict[str, Any]:
     """Store conversation history in the database."""
 
-    conn = connection_pool.getconn()
-    cursor = conn.cursor()
+    conn = None
     try:
+        conn = connection_pool.getconn()
+        cursor = conn.cursor()
+        
         report_id = state.get('report_id')
         history = state.get('conversation_history', [])
 
         if not report_id:
+            print("Error: Report ID is required to store conversation history")
             return {"error": "Report ID is required"}
+            
+        if not history:
+            print("Warning: No conversation history to store")
+            return {"status": "success", "message": "No conversation history to store"}
+
+        print(f"Storing {len(history)} conversation events for report ID: {report_id}")
+        stored_count = 0
         for event in history:
-            event_data = json.dumps(event)
-            cursor.execute("""
-                INSERT INTO conversation_events (report_id, event_type, event_data, timestamp)
-                VALUES (%s, %s, %s, to_timestamp(%s));
-            """, (
-                report_id,
-                event.get('event_type'),
-                event_data,
-                event.get('timestamp', time.time())
-            ))
+            try:
+                event_data = json.dumps(event)
+                cursor.execute("""
+                    INSERT INTO conversation_events (report_id, event_type, event_data, timestamp)
+                    VALUES (%s, %s, %s, to_timestamp(%s))
+                    RETURNING id;
+                """, (
+                    report_id,
+                    event.get('event_type'),
+                    event_data,
+                    event.get('timestamp', time.time())
+                ))
+                event_id = cursor.fetchone()[0]
+                stored_count += 1
+                print(f"Stored event {stored_count}/{len(history)} with ID: {event_id}")
+            except Exception as e:
+                print(f"Error storing individual event: {str(e)}")
+                conn.rollback()
+                continue
+
         conn.commit()
-        return {"status": "success"}
+        print(f"Successfully stored {stored_count} out of {len(history)} conversation events")
+        return {"status": "success", "events_stored": stored_count}
+        
     except Exception as e:
-        conn.rollback()
-        print(f"Error at store_conversation_history: {str(e)}")
+        if conn:
+            conn.rollback()
+        print(f"Error storing conversation history: {str(e)}")
         return {"error": str(e)}
     finally:
-        cursor.close()
-        connection_pool.putconn(conn)
+        if conn:
+            cursor.close()
+            connection_pool.putconn(conn)
 
 def store_interview_data(state: State) -> Dict[str, Any]:
     """Main function to store interview data in the database.
@@ -138,36 +197,61 @@ def store_interview_data(state: State) -> Dict[str, Any]:
     Returns:
         A dictionary with the operation status
     """
+    print("\nStarting database operations...")
     if state.get('plan') == ['API Error: Failed to generate questions']:
         print("API error occurred. Report not stored in the database.")
         return {"status": "Error"}
 
     try:
         # Step 1: Check if candidate exists
+        print("Checking if candidate exists...")
         result = check_candidate_exists(state)
-        if "error" in result:
+        if result.get("error"):
+            print(f"Error checking candidate: {result['error']}")
             return result
+            
+        # Set the candidate ID in state
+        if result.get("exists"):
+            state["id"] = result["id"]
+        else:
+            print("Error: Candidate not found")
+            return {"status": "Error", "error": "Candidate not found"}
 
-        # Step 3: Create a report
+        print(f"Using candidate ID: {state['id']}")
+
+        # Step 2: Create a report
+        print("Creating report...")
         result = create_report(state)
         if "error" in result:
+            print(f"Error creating report: {result['error']}")
             return result
         state["report_id"] = result["report_id"]
+        print(f"Created report with ID: {state['report_id']}")
 
-        # Step 4: Store interview scores
+        # Step 3: Store interview scores
         if state.get("scores"):
+            print("Storing interview scores...")
             result = store_interview_scores(state)
             if "error" in result:
+                print(f"Error storing scores: {result['error']}")
                 return result
+            print(f"Stored {result.get('scores_stored', 0)} scores")
 
-        # Step 5: Store conversation history
+        # Step 4: Store conversation history
         if state.get("conversation_history"):
+            print("Storing conversation history...")
             result = store_conversation_history(state)
             if "error" in result:
+                print(f"Error storing history: {result['error']}")
                 return result
+            print(f"Stored {result.get('events_stored', 0)} conversation events")
 
         print("\nDatabase operations completed successfully.")
-        return {"status": "Success", "candidate_id": state["id"], "report_id": state["report_id"]}
+        return {
+            "status": "Success", 
+            "candidate_id": state["id"], 
+            "report_id": state["report_id"]
+        }
     except Exception as e:
         print(f"Error in database operations: {e}")
         traceback.print_exc()

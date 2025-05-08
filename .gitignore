@@ -5,5 +5,4 @@ __pycache__
 knowledge_base
 interview_db.ini
 querries
-test.py
-test2.py
+test/

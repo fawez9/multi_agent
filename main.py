@@ -122,6 +122,7 @@ Skills: {state['skills']}\n
         for i, score in enumerate(state.get('scores', []), 1):
             report.append(f"{i}. Question: {score['question']}")
             report.append(f"   Answer: {score['response']}")
+            report.append(f"   Facial Analysis: {score['facial_analysis']}")
             report.append(f"   Evaluation: {score['evaluation']}\n")
 
     report_text = '\n'.join(report)
@@ -157,9 +158,8 @@ workflow.add_edge("init", "gen_plan")
 workflow.add_edge("gen_plan", "interview_agent")
 workflow.add_edge("interview_agent", "evaluation_agent")
 workflow.add_edge("evaluation_agent","gen_report")
-# workflow.add_edge("gen_report", "database_store")
-# workflow.add_edge("database_store", "end")
-workflow.add_edge("gen_report", "end")
+workflow.add_edge("gen_report", "database_store")
+workflow.add_edge("database_store", "end")
 workflow.set_finish_point("end")
 
 
