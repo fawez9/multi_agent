@@ -145,7 +145,6 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
         # Present a thank you message if this is the first time after completion
         if not state['_internal_flags'].get('thank_you_presented', False):
             thank_you_message = f"Thank you, {state.get('name', 'candidate')}, for participating in this interview. We appreciate your time and responses."
-            print(f"\n{thank_you_message}")
 
             # Add the thank you message to shared state messages
             shared_state.add_message("assistant", thank_you_message)
@@ -153,7 +152,7 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
             # Mark the interview as complete in shared state
             shared_state.mark_interview_complete()
 
-            # text_to_speech_and_play(thank_you_message)
+            text_to_speech_and_play(thank_you_message)
 
             # Mark that the thank you message has been presented
             state['_internal_flags']['thank_you_presented'] = True
@@ -194,11 +193,10 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
         state['conversation_history'].append(question_event)
 
         # Present the question to the candidate
-        print(f"\nQ: {current_question}")
 
         # Add the question to shared state messages - only for new questions, not refined ones
         shared_state.add_message("assistant", current_question)
-        
+        text_to_speech_and_play(current_question)
         # Add a short delay to ensure UI updates
         time.sleep(0.5)
 

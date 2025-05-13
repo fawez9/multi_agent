@@ -43,12 +43,11 @@ def initialize_candidate_info(state: State):
     }
     print("Candidate information initialized:", new_state)
     text='Welcome '+new_state['name']+' for your interview for a '+new_state['job_details']['applied_role']+' position at '+new_state['job_details']['company']+', we will generate your interview plan now'
-    print(text)
 
     # Add the welcome message to shared state
     shared_state.add_message("assistant", text)
+    text_to_speech_and_play(text)
 
-    # text_to_speech_and_play(text)
 
     return new_state
 
@@ -93,12 +92,11 @@ def generate_interview_plan(state: State):
         return {'plan': ['API Error: Failed to generate questions'], 'status': 'Plan Complete'}
 
     text="now we will start the interview please prepare yourself and answer the questions clearly you'll get a one refinement per question make sure to understand the questions before answering, good luck"
-    print(text)
 
     # Add the start message to shared state
     shared_state.add_message("assistant", text)
+    text_to_speech_and_play(text)
 
-    # text_to_speech_and_play(text)
     return {'plan': questions,'nb_questions':nb_questions}
 
 
