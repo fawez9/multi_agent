@@ -124,6 +124,7 @@ def check_interview_plan(state: Dict[str, Any]) -> Dict[str, Any]:
 @tool(args_schema=StateParam)
 @handle_state_conversion
 def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
+    #BUG: tts refined question are not played
     """Presents the next question in the interview plan.
 
     This tool either presents the next question from the plan or delivers a thank you
