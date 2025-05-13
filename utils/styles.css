@@ -1,0 +1,146 @@
+/* Dark theme for chat interface */
+.stApp {
+  background-color: #111827;
+  color: white;
+}
+
+/* Style the chat container */
+.main .block-container {
+  padding-bottom: 80px; /* Space for the input at bottom */
+  max-width: calc(100% - 350px) !important;
+  margin-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Style the chat messages */
+[data-testid="stChatMessage"] {
+  background-color: #1f2937 !important;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+
+/* Style user messages */
+[data-testid="stChatMessage"][data-testid*="user"] {
+  background-color: #374151 !important;
+}
+
+/* Style assistant messages */
+[data-testid="stChatMessage"][data-testid*="assistant"] {
+  background-color: #1f2937 !important;
+}
+
+/* Input and mic button layout */
+[data-testid="stChatInput"] {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+
+  padding: 20px !important;
+  z-index: 1000 !important;
+  border-top: 1px solid #374151 !important;
+  width: calc(100% - 150px) !important; /* Leave space for mic button */
+}
+
+/* Style the chat input */
+[data-testid="stChatInput"] input {
+  background-color: #1f2937 !important;
+  color: white !important;
+  border-radius: 20px !important;
+  width: calc(100% - 100px) !important; /* Adjust width to leave space for mic */
+}
+
+/* Hide the default Streamlit footer */
+footer {
+  display: none !important;
+}
+
+/* Adjust header styling */
+h1,
+h2,
+h3 {
+  color: white !important;
+}
+
+/* Make the video column fixed on the right */
+[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+  position: fixed !important;
+  right: 20px !important;
+  top: 80px !important;
+  width: 320px !important;
+  z-index: 1000 !important;
+  background-color: #111827 !important;
+  border-radius: 10px !important;
+  padding: 10px !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Style the WebRTC component */
+.stWebrtcStreamer {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+.stWebrtcStreamer video {
+  width: 100% !important;
+  max-height: 225px !important;
+  border-radius: 8px !important;
+}
+
+/* Hide the video container div */
+.video-container {
+  display: none !important;
+}
+
+/* Style the microphone button */
+.element-container:has(button) {
+  position: fixed !important;
+  bottom: 20px !important;
+  right: 20px !important;
+  z-index: 1001 !important;
+  margin: 0 !important;
+}
+
+[data-testid="baseButton-primary"] {
+  background-color: #2563eb !important;
+  color: white !important;
+  border-radius: 50% !important;
+  width: 40px !important;
+  height: 40px !important;
+  min-width: 40px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+  margin: 0 !important;
+  font-size: 20px !important;
+}
+
+[data-testid="baseButton-primary"]:hover {
+  background-color: #1d4ed8 !important;
+  transform: scale(1.05) !important;
+}
+
+/* Recording animation */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    background-color: #dc2626;
+  }
+  50% {
+    transform: scale(1.1);
+    background-color: #ef4444;
+  }
+  100% {
+    transform: scale(1);
+    background-color: #dc2626;
+  }
+}
+
+[data-testid="baseButton-primary"].recording {
+  animation: pulse 1.5s infinite !important;
+}

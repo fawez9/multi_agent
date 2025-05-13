@@ -11,6 +11,7 @@ from main import interview_flow
 from utils.shared_state import shared_state
 # Import the video processor
 from video_processor import create_video_processor
+from utils.stt_tts import speech_to_text, stop_recording_audio, is_mic_active
 
 load_dotenv()
 
@@ -29,6 +30,10 @@ st.set_page_config(layout="wide")
 # Initialize session state for message tracking if not already done
 if "last_message_count" not in st.session_state:
     st.session_state.last_message_count = 0
+if "is_recording" not in st.session_state:
+    st.session_state.is_recording = False
+if "use_mic" not in st.session_state:
+    st.session_state.use_mic = False
 
 # Add flag to track if we just submitted a message
 if "just_submitted_input" not in st.session_state:
@@ -64,105 +69,12 @@ if (current_message_count > st.session_state.last_message_count or
 if st.session_state.just_submitted_input:
     st.session_state.just_submitted_input = False
 
-# Add custom CSS to style the page and video component
-st.markdown("""
-<style>
-/* Dark theme for chat interface */
-.stApp {
-    background-color: #111827;
-    color: white;
-}
+# Load and apply custom CSS
+def load_css(css_file):
+    with open(css_file, 'r') as f:
+        return f'<style>{f.read()}</style>'
 
-/* Style the chat container */
-.main .block-container {
-    padding-bottom: 80px; /* Space for the input at bottom */
-    max-width: 100% !important;
-}
-
-/* Style the chat messages */
-[data-testid="stChatMessage"] {
-    background-color: #1F2937 !important;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    padding: 10px;
-}
-
-/* Style user messages */
-[data-testid="stChatMessage"][data-testid*="user"] {
-    background-color: #374151 !important;
-}
-
-/* Style assistant messages */
-[data-testid="stChatMessage"][data-testid*="assistant"] {
-    background-color: #1F2937 !important;
-}
-
-/* Fix the chat input at the bottom */
-[data-testid="stChatInput"] {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background-color: #111827;
-    padding: 20px;
-    z-index: 1000;
-    border-top: 1px solid #374151;
-}
-
-/* Style the chat input */
-[data-testid="stChatInput"] input {
-    background-color: #1F2937;
-    color: white;
-    border-radius: 20px;
-}
-
-/* Hide the default Streamlit footer */
-footer {display: none !important;}
-
-/* Adjust header styling */
-h1, h2, h3 {
-    color: white !important;
-}
-
-/* Make the video column fixed on the right */
-[data-testid="stHorizontalBlock"] > div:nth-child(2) {
-    position: fixed !important;
-    right: 20px !important;
-    top: 80px !important;
-    width: 320px !important;
-    z-index: 1000 !important;
-    background-color: #111827 !important;
-    border-radius: 10px !important;
-    padding: 10px !important;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
-}
-
-/* Adjust main content to make room for video on the right */
-.main .block-container {
-    max-width: calc(100% - 350px) !important;
-    margin-left: 0 !important;
-    padding-right: 0 !important;
-}
-
-/* Style the WebRTC component */
-.stWebrtcStreamer {
-    background-color: transparent !important;
-    border: none !important;
-}
-
-/* Style the video element */
-.stWebrtcStreamer video {
-    width: 100% !important;
-    max-height: 225px !important;
-    border-radius: 8px !important;
-}
-
-/* Hide the video container div since we're using the column itself */
-.video-container {
-    display: none !important;
-}
-</style>
-""", unsafe_allow_html=True)
+st.markdown(load_css('utils/styles.css'), unsafe_allow_html=True)
 
 # Create a two-column layout with chat on the left and video on the right
 chat_col, video_col = st.columns([3, 1])
@@ -226,21 +138,35 @@ if not st.session_state.interview_started:
     print("Interview thread started")
 
 
-# Handle user input
-user_input = st.chat_input("Enter your response:")
+# Text input
+user_input = st.chat_input("Enter your response or click 🎤 to speak")
 if user_input:
-    # Don't display user message immediately - it will be shown from the shared_state
-    
-    # Set the user response in shared state
-    # Note: set_user_response internally calls add_message so we don't need to call it separately
     shared_state.set_user_response(user_input)
-    
-    # Set the just_submitted_input flag and skip the next refresh
     st.session_state.just_submitted_input = True
     st.session_state.skip_next_refresh = True
-    
-    # Update the message count to include this new message
     st.session_state.last_message_count = len(shared_state.get_messages())
+
+# Microphone toggle with dynamic icon based on recording state
+mic_icon = "🎤 Recording..." if st.session_state.is_recording else "🎤"
+if st.button(mic_icon, key="mic_button", type="primary", use_container_width=False):
+    if not st.session_state.is_recording:
+        st.session_state.is_recording = True
+        try:
+            # Record audio with improved parameters
+            text = speech_to_text(max_duration=30, silence_threshold=0.02, silence_duration=1.5)
+            if text:
+                shared_state.set_user_response(text)
+                st.session_state.just_submitted_input = True
+                st.session_state.skip_next_refresh = True
+                st.session_state.last_message_count = len(shared_state.get_messages())
+        except Exception as e:
+            st.error(f"Error recording audio: {str(e)}")
+        finally:
+            st.session_state.is_recording = False
+            stop_recording_audio()
+    else:
+        stop_recording_audio()
+        st.session_state.is_recording = False
 
 # Display chat messages from shared state
 messages = shared_state.get_messages()
