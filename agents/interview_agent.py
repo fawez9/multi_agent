@@ -179,27 +179,33 @@ def present_question(state: Dict[str, Any]) -> Dict[str, Any]:
     is_new_question = state.get('current_question', '') != current_question and not state['_internal_flags'].get('question_refined', False)
     
     if is_new_question:
+        print("\nProcessing new question...")
         # Reset refinement flags for new questions
         state['_internal_flags']['question_refined'] = False
         state['_internal_flags']['needs_refinement'] = False
-
-    # Skip adding to UI if question was just refined (refine_question already added it)
-    if not state['_internal_flags'].get('question_refined', False) or is_new_question:
-        # Track the question presentation in conversation history
-        question_event = {
-            'event_type': 'present_question',
-            'question': current_question,
-            'is_refined': state['_internal_flags'].get('question_refined', False),
-        }
-        state['conversation_history'].append(question_event)
-
-        # Present the question to the candidate
-
-        # Add the question to shared state messages - only for new questions, not refined ones
+        
+        # Add regular message for new questions
         shared_state.add_message("assistant", current_question)
         text_to_speech_and_play(current_question)
-        # Add a short delay to ensure UI updates
-        time.sleep(0.5)
+    else:
+        # This is either a refined question or a repeat of current question
+        if state['_internal_flags'].get('question_refined', False):
+            print("\nPresenting refined question...")
+            # For refined questions, always play TTS with prefix
+            prefixed_question = f"Let me rephrase: {current_question}"
+            # Note: UI message is already added by refine_question
+            text_to_speech_and_play(prefixed_question)
+
+    # Track the question presentation in conversation history
+    question_event = {
+        'event_type': 'present_question',
+        'question': current_question,
+        'is_refined': state['_internal_flags'].get('question_refined', False),
+    }
+    state['conversation_history'].append(question_event)
+    
+    # Add a short delay to ensure UI updates
+    time.sleep(0.5)
 
     # Update the current question in the state regardless
     state.update({
@@ -427,13 +433,16 @@ def refine_question(state: Dict[str, Any]) -> Dict[str, Any]:
 
         # Replace the current question in the plan with the refined version
         if state['plan']:
+            # Store the refined question without prefix in the plan
             state['plan'][0] = refined_question
+            print(f"\nUpdated plan with refined question: {refined_question}")
 
         # Update flags to indicate the question has been refined
         state['_internal_flags'].update({
             'needs_refinement': False,
             'question_refined': True
         })
+        print("\nMarked question as refined in state")
         
         # Add a short pause to ensure the UI has time to refresh
         time.sleep(1)

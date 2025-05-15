@@ -68,7 +68,8 @@ def generate_interview_plan(state: State):
     applied_role = state['job_details'].get('applied_role', 'Unknown Role')
     job_skills = state['job_details'].get('skills', [])
     job_description = state['job_details'].get('description', "No description available")
-    nb_questions = 1   #TODO : param for questions
+    nb_questions = 15   #TODO : param for questions
+    themes = ['soft skills', 'hard skills', 'experience', 'motivation']
     try:
         # Generate questions using the RAG system
         #TODO : enhance the prompt to maintain a stable TTS
@@ -77,6 +78,7 @@ def generate_interview_plan(state: State):
         these are infos about the job: {job_skills} {job_description}
         and this is the role that the candidate applied for: {applied_role}
         Generate {nb_questions} questions for the interview based on the candidate's profile and the job requirements.
+        make questions by theme : {themes}
         Format each question as a numbered item.
         """
         response = rag.generate_response(query=prompt)  # Use the RAG system to generate questions
@@ -85,7 +87,7 @@ def generate_interview_plan(state: State):
         questions = []
         for line in response.split('\n'):
             line = line.strip()
-            if line and any(line.startswith(f"{i}.") for i in range(1, 4)):  #TODO : handle questions
+            if line and any(line.startswith(f"{i}.") for i in range(1, 16)):  #TODO : handle questions
                 questions.append(line.strip())
     except Exception as e:
         print(f"API Error: {str(e)}")
